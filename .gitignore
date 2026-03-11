@@ -26,3 +26,7 @@ Thumbs.db
 *.ntvs*
 *.njsproj
 *.sln
+# Database
+*.sqlite
+*.sqlite3
+*.db
