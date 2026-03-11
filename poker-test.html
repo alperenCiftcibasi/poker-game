@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Poker Final Arena</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #ecf0f1; padding: 20px; display: flex; gap: 20px; }
+        
+        /* Sol Panel: Oyun */
+        #mainPanel { flex: 2; }
+        /* Sağ Panel: Oyuncu Listesi */
+        #sidePanel { flex: 1; background: #2c3e50; padding: 15px; border-radius: 10px; height: fit-content; border: 2px solid #34495e; }
+
+        .btn { padding: 12px 20px; cursor: pointer; background: #e67e22; border: none; color: white; margin: 5px; font-weight: bold; border-radius: 5px; font-size: 16px; transition: 0.3s; }
+        .btn:hover { background: #d35400; transform: scale(1.05); }
+        .btn-start { background: #27ae60; width: 100%; font-size: 20px; padding: 15px; margin-bottom: 20px; display: none; } /* Başlangıçta gizli */
+        .btn-start:hover { background: #2ecc71; }
+
+        .card { background: white; color: black; padding: 8px 12px; margin: 4px; border-radius: 6px; font-weight: bold; font-size: 22px; display: inline-block; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); }
+        .red { color: #c0392b; } .black { color: #2c3e50; }
+
+        #gameArea { display: none; background: #2c3e50; padding: 20px; border-radius: 10px; border: 4px solid #34495e; text-align: center; }
+        #turnIndicator { background: #f1c40f; color: #2c3e50; padding: 10px; display: none; margin-bottom: 10px; font-weight: bold; border-radius: 5px; animation: pulse 1s infinite; }
+        #winnerBanner { background: #8e44ad; color: white; padding: 15px; font-size: 20px; font-weight: bold; display: none; margin-bottom: 15px; border-radius: 5px; border: 2px solid #fff; }
+
+        /* Oyuncu Listesi Stili */
+        .player-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #7f8c8d; align-items: center; }
+        .player-row:last-child { border-bottom: none; }
+        .player-active { background: #16a085; border-radius: 5px; } /* Sıra kimdeyse o yeşil yanar */
+        .chip-count { color: #f1c40f; font-weight: bold; }
+        /* Küçük Kart Görünümü (Sağ Panel İçin) */
+        .card-mini { 
+            font-size: 14px; 
+            padding: 2px 5px; 
+            margin: 1px; 
+            border-radius: 3px; 
+            display: inline-block;
+            background: white;
+            border: 1px solid #ccc;
+        }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <!-- SOL PANEL: OYUN ALANI -->
+    <div id="mainPanel">
+        <h1>♠️ Texas Hold'em Poker</h1>
+        
+        <div id="loginArea">
+            <textarea id="tokenInput" rows="2" style="width:100%" placeholder="Token buraya..."></textarea><br>
+            <button class="btn" onclick="baglan()">🔌 Sunucuya Bağlan</button>
+            <button class="btn" onclick="masayaOtur(1)">🪑 Masa 1'e Otur</button>
+        </div>
+
+        <div id="gameArea">
+            <div id="winnerBanner">🏆 KAZANAN: <span id="winnerText"></span></div>
+
+            <!-- İŞTE ARADIĞIN BUTON BURADA -->
+            <button id="startBtn" class="btn btn-start" onclick="oyunuBaslat()">🎲 OYUNU BAŞLAT</button>
+            
+            <div id="turnIndicator">🔔 SIRA SENDE! 🔔</div>
+            
+            <div id="communityCards" style="min-height: 60px; margin: 20px 0;"></div>
+            
+            <h3>💰 ORTADAKİ POT: <span id="potAmount" style="color:#f1c40f; font-size: 28px;">0</span></h3>
+            
+            <div style="background: #34495e; padding: 15px; border-radius: 8px; margin: 10px 0;">
+                <p style="margin:0 0 10px 0; color:#bdc3c7;">GİZLİ KARTLARIN:</p>
+                <div id="myCards">---</div>
+                <div id="myHandRank" style="color: #f39c12; font-weight: bold; margin-top: 5px; font-size: 18px;"></div>
+
+            </div>
+            
+            <hr style="border-color: #555;">
+            <button class="btn" onclick="hamleYap('fold')">🏳️ FOLD</button>
+            <button class="btn" onclick="hamleYap('call')">👀 CALL / CHECK</button>
+            <button class="btn" onclick="hamleYap('raise', 100)">💰 RAISE 100</button>
+        </div>
+        
+        <div style="margin-top: 20px; font-family: monospace; background: #000; padding: 10px; height: 150px; overflow-y: scroll;" id="messages"></div>
+    </div>
+
+    <!-- SAĞ PANEL: OYUNCULAR VE ÇİPLER -->
+    <div id="sidePanel">
+        <h3 style="text-align: center; border-bottom: 2px solid white; padding-bottom: 10px;">👥 OYUNCULAR</h3>
+        <div id="playerList">
+            <p style="text-align:center; color:#95a5a6;">Henüz kimse yok...</p>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        let myUsername = "";
+        let currentTableId = 1;
+
+        function logla(mesaj) {
+            const div = document.getElementById('messages');
+            div.innerHTML = `<div>${mesaj}</div>` + div.innerHTML;
+        }
+
+        function getCardHtml(card) {
+            const suitIcons = { 'hearts': '♥️', 'diamonds': '♦️', 'clubs': '♣️', 'spades': '♠️' };
+            const suitColor = (card.suit === 'hearts' || card.suit === 'diamonds') ? 'red' : 'black';
+            const rank = card.rank === 'T' ? '10' : card.rank;
+            return `<span class="card ${suitColor}">${rank}${suitIcons[card.suit]}</span>`;
+        }
+
+        function baglan() {
+            const token = document.getElementById('tokenInput').value;
+            if(!token) return alert('Token yok!');
+            try { myUsername = JSON.parse(atob(token.split('.')[1])).username; } catch(e){}
+
+            socket = io('http://localhost:5000', { auth: { token } });
+            socket.on('connect', () => logla('🟢 Bağlandı!'));
+            socket.on('error', (msg) => logla('❌ ' + msg));
+            socket.on('handRankUpdate', (data) => {
+                document.getElementById('myHandRank').innerText = "✋ " + data.rank;
+            });
+            socket.on('tableUpdated', renderTable);
+            socket.on('receiveCards', (data) => {
+                document.getElementById('myCards').innerHTML = data.cards.map(getCardHtml).join(' ');
+                logla('🃏 Kartların dağıtıldı!');
+            });
+            socket.on('actionBroadcast', (data) => logla(`⚡ ${data.username}: ${data.action}`));
+        }
+
+        function renderTable(data) {
+            document.getElementById('gameArea').style.display = 'block';
+            document.getElementById('potAmount').innerText = data.pot;
+
+        // 1. OYUNCU LİSTESİNİ VE ÇİPLERİ GÜNCELLE
+            const listDiv = document.getElementById('playerList');
+            
+            // Yardımcı Fonksiyon: Küçük kart HTML'i oluşturur
+            const getMiniCardHtml = (card) => {
+                const suitIcons = { 'hearts': '♥️', 'diamonds': '♦️', 'clubs': '♣️', 'spades': '♠️' };
+                const suitColor = (card.suit === 'hearts' || card.suit === 'diamonds') ? 'red' : 'black';
+                const rank = card.rank === 'T' ? '10' : card.rank;
+                return `<span class="card-mini ${suitColor}">${rank}${suitIcons[card.suit]}</span>`;
+            };
+
+            listDiv.innerHTML = data.players.map(p => {
+                const isActiveTurn = (data.currentTurnIndex !== -1 && data.players[data.currentTurnIndex] && data.players[data.currentTurnIndex].username === p.username);
+                
+                // --- EL BİLGİSİ VE KART GÖSTERİMİ ---
+                let handInfoHtml = "";
+                let cardsHtml = "";
+
+                // Sadece oyun bittiğinde veya showdown'da göster
+                if (data.gameState === 'finished' || data.gameState === 'showdown') {
+                    // 1. El Kombinasyon İsmi (Örn: Two Pair)
+                    if (p.handDescription) {
+                        handInfoHtml = `<div style="color:#f1c40f; font-weight:bold; font-size:0.85em; margin-top:2px;">🏆 ${p.handDescription}</div>`;
+                    }
+                    // 2. Oyuncunun Kartları (Küçük boy)
+                    if (p.cards && p.cards.length > 0) {
+                        cardsHtml = `<div style="margin-top:2px;">${p.cards.map(c => getMiniCardHtml(c)).join('')}</div>`;
+                    }
+                }
+                // ------------------------------------
+
+                return `
+                <div class="player-row ${isActiveTurn ? 'player-active' : ''}">
+                    <div style="flex:1;">
+                        <div style="font-weight:bold; font-size:1.1em;">
+                            ${p.username} ${p.username === myUsername ? '<span style="font-size:0.8em; color:#bbb">(Sen)</span>' : ''}
+                        </div>
+                        <div style="font-size:0.8em; color:${p.status === 'folded' ? '#e74c3c' : '#bdc3c7'}">
+                            ${p.status.toUpperCase()}
+                        </div>
+                        
+                        <!-- Kazanan El ve Kartlar Burada Görünecek -->
+                        ${handInfoHtml}
+                        ${cardsHtml}
+                    </div>
+                    
+                    <div style="text-align:right; min-width: 80px;">
+                        <div class="chip-count">${p.chips} 🍪</div>
+                        <div style="font-size:0.8em;">Bahis: ${p.currentBet}</div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // 2. KAZANAN VAR MI?
+            const banner = document.getElementById('winnerBanner');
+            if (data.gameState === 'finished' && data.winners.length > 0) {
+                banner.style.display = 'block';
+                document.getElementById('winnerText').innerText = data.winners.join(', ');
+                document.getElementById('startBtn').style.display = 'none';
+            } else {
+                banner.style.display = 'none';
+            }
+
+            // 3. YERDEKİ KARTLAR
+            const commDiv = document.getElementById('communityCards');
+            if (data.communityCards.length > 0) {
+                commDiv.innerHTML = data.communityCards.map(getCardHtml).join(' ');
+            } else {
+                commDiv.innerHTML = '<span style="color:#7f8c8d; font-style:italic;">Kartlar açılmadı</span>';
+            }
+
+            // 4. BAŞLAT BUTONU MANTIĞI (ÖNEMLİ!)
+            const startBtn = document.getElementById('startBtn');
+            // Oyun waiting ise VE Masada en az 2 kişi varsa göster
+            if (data.gameState === 'waiting' && data.players.length >= 2) {
+                startBtn.style.display = 'block';
+            } else {
+                startBtn.style.display = 'none';
+            }
+
+            // 5. SIRA KİMDE?
+            const indicator = document.getElementById('turnIndicator');
+            if (data.gameState !== 'waiting' && data.gameState !== 'finished') {
+                const currentPlayer = data.players[data.currentTurnIndex];
+                const isMyTurn = currentPlayer && currentPlayer.username === myUsername;
+                indicator.style.display = isMyTurn ? 'block' : 'none';
+            } else {
+                indicator.style.display = 'none';
+            }
+        }
+
+        function masayaOtur(id) { socket.emit('joinTable', id); }
+        function oyunuBaslat() { socket.emit('startGame', currentTableId); }
+        function hamleYap(action, amount=0) { socket.emit('playerAction', { tableId: currentTableId, action, amount }); }
+    </script>
+</body>
+</html>
