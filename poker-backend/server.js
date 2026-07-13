@@ -119,10 +119,15 @@ io.on('connection', (socket) => {
     
 // 👁️ MASAYI GÖRÜNTÜLEME (VE YENİDEN BAŞLANMA KONTROLÜ)
     socket.on('viewTable', async (tableId) => {
+        // Faz 5: Farklı bir masaya geçildiyse önceki odadan ayrıl (bayat broadcast'leri engelle)
+        if (socket.tableId && String(socket.tableId) !== String(tableId)) {
+            socket.leave(`table_${socket.tableId}`);
+        }
+
         const table = await getOrCreateTable(tableId);
         if (!table) return socket.emit('error', 'Masa bulunamadı!');
-        
-        // 🛠️ DÜZELTME: Eğer oyuncu zaten masadaysa (sayfa yenilediyse), 
+
+        // 🛠️ DÜZELTME: Eğer oyuncu zaten masadaysa (sayfa yenilediyse),
         // yeni Socket ID'sini masaya kaydet ve gizli kartlarını ona hemen geri yolla!
         const existingPlayer = table.players.find(p => p.id === socket.user.id);
         let didReconnect = false;
@@ -134,6 +139,9 @@ io.on('connection', (socket) => {
             }
             if (existingPlayer.cards && existingPlayer.cards.length > 0) {
                 socket.emit('receiveCards', { cards: existingPlayer.cards });
+                // Faz 5: el ortasında yenilemede el sıralaması da geri gelsin
+                const rank = table.evaluatePlayerHand(existingPlayer);
+                if (rank) socket.emit('handRankUpdate', { rank });
             }
         }
 

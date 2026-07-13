@@ -10,6 +10,7 @@ import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
 import { SERVER_URL } from './config';
+import { playSound, isMuted, toggleMute } from './utils/sounds';
 
 // Aksiyon logu için Türkçe etiketler (Faz 4.4)
 function formatAction(username, action, amount) {
@@ -37,10 +38,16 @@ function App() {
   const [showBuyInModal, setShowBuyInModal] = useState(false);
   const [buyInBank, setBuyInBank] = useState(null); // null = bakiye yükleniyor
   const [gameLog, setGameLog] = useState([]); // Faz 4.4: aksiyon/olay logu
+  const [muted, setMuted] = useState(isMuted()); // Faz 5: ses aç/kapa
   const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
+  const myIdRef = useRef(null);    // socket dinleyicileri için taze kullanıcı id'si
+  const wasMyTurnRef = useRef(false); // sıra sesini sadece geçişte çal
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Socket dinleyicileri closure'da eski user'ı yakalamasın diye id'yi ref'te tut
+  myIdRef.current = user?.id ?? null;
 
   // --- 1. ETKİ: AUTH GUARD (GİRİŞ KONTROLÜ VE YÖNLENDİRME) ---
   // Bu efekt sadece giriş yapılıp yapılmadığını ve token geçerliliğini kontrol eder.
@@ -128,12 +135,20 @@ function App() {
           if (winnerKeyRef.current !== key) {
             winnerKeyRef.current = key;
             addLog('winner', `🏆 Kazanan: ${state.winners.join(', ')}`);
+            playSound('win');
           }
         } else if (state.gameState === 'pre-flop') {
           winnerKeyRef.current = '';
         }
+
+        // Sıra sesi: sadece bize sıra GEÇTİĞİNDE bir kez çal
+        const active = !['waiting', 'finished', 'showdown'].includes(state.gameState);
+        const cur = state.players?.[state.currentTurnIndex];
+        const myTurn = active && cur && cur.id === myIdRef.current;
+        if (myTurn && !wasMyTurnRef.current) playSound('turn');
+        wasMyTurnRef.current = !!myTurn;
       });
-      newSocket.on('receiveCards', (data) => setMyCards(data.cards));
+      newSocket.on('receiveCards', (data) => { setMyCards(data.cards); playSound('deal'); });
       newSocket.on('handRankUpdate', (data) => setMyHandRank(data.rank));
       newSocket.on('actionBroadcast', (data) => {
         addLog('action', formatAction(data.username, data.action, data.amount));
@@ -182,6 +197,7 @@ function App() {
       setVoteResult(null);
       setGameLog([]);
       winnerKeyRef.current = '';
+      wasMyTurnRef.current = false;
     }
   }, [socket, location.pathname]);
 
@@ -332,6 +348,13 @@ function App() {
         <>
           <button onClick={handleOpenLeaderboard} className="leaderboard-button" title="Lider Tablosu">
             🏆
+          </button>
+          <button
+            onClick={() => setMuted(toggleMute())}
+            className="sound-button"
+            title={muted ? 'Sesi Aç' : 'Sesi Kapat'}
+          >
+            {muted ? '🔇' : '🔊'}
           </button>
           {user?.isAdmin && (
             <button onClick={handleOpenAdminPanel} className="admin-button" title="Admin Paneli">
