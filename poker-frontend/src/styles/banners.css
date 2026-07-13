@@ -1,0 +1,32 @@
+/* ============ Faz 4: Masa üstü banner'ları ============ */
+.pk-banners { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+
+.pk-banner {
+  padding: 10px 16px; border-radius: 10px; font-size: 15px; color: #fff;
+  animation: pk-slide-in 0.3s ease-out;
+}
+@keyframes pk-slide-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+.pk-banner.winner { background: linear-gradient(135deg, #8e44ad, #6c3483); font-weight: bold; font-size: 18px; text-align: center; }
+.pk-banner.alert { background: #e67e22; animation: pk-pulse 2s infinite; }
+.pk-banner.reveal { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+
+.pk-banner.vote { background: linear-gradient(135deg, #2c3e50, #34495e); border: 2px solid var(--pk-gold, #f1c40f); text-align: center; }
+.pk-vote-info { color: #ecf0f1; font-size: 14px; margin-bottom: 8px; }
+.pk-vote-detail { color: var(--pk-gold, #f1c40f); font-weight: bold; }
+.pk-vote-meta { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px; }
+.pk-vote-timer { font-weight: bold; font-size: 18px; }
+.pk-vote-progress { color: #bdc3c7; font-size: 13px; }
+.pk-vote-actions { display: flex; gap: 10px; justify-content: center; }
+.pk-btn-vote { padding: 9px 22px; font-weight: bold; font-size: 14px; cursor: pointer; border: none; border-radius: 6px; color: #fff; transition: 0.2s; }
+.pk-btn-vote.accept { background: #27ae60; }
+.pk-btn-vote.accept:hover { background: #2ecc71; }
+.pk-btn-vote.reject { background: #c0392b; }
+.pk-btn-vote.reject:hover { background: #e74c3c; }
+.pk-vote-status { color: #bdc3c7; font-style: italic; font-size: 13px; margin-top: 4px; }
+
+.pk-banner.vote-result { text-align: center; font-weight: bold; }
+.pk-banner.vote-result.passed { background: #27ae60; }
+.pk-banner.vote-result.rejected { background: #c0392b; }
+
+@keyframes pk-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.65; } }

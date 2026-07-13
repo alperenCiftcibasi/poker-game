@@ -627,6 +627,7 @@ class PokerTable {
         const cardsVisible = this.gameState === 'showdown' || (this.gameState === 'finished' && this.handRevealed);
         return {
             id: this.id, gameState: this.gameState, pot: this.pot, turnEndTime: this.turnEndTime,
+            maxPlayers: this.maxPlayers,
             communityCards: this.communityCards,
             currentTurnIndex: this.gameState === 'waiting' || this.gameState === 'finished' ? -1 : this.currentTurnIndex,
             winners: this.gameState === 'finished' ? this.winners : [],

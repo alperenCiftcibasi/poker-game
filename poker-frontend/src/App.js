@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import io from 'socket.io-client';
 import './App.css';
@@ -10,6 +10,15 @@ import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
 import { SERVER_URL } from './config';
+
+// Aksiyon logu için Türkçe etiketler (Faz 4.4)
+function formatAction(username, action, amount) {
+  if (action === 'raise') return `${username} ${amount}'e yükseltti`;
+  if (action === 'call') return `${username} gördü`;
+  if (action === 'check') return `${username} pas geçti`;
+  if (action === 'fold') return `${username} çekildi`;
+  return `${username} ${action}`;
+}
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -27,6 +36,8 @@ function App() {
   const [voteResult, setVoteResult] = useState(null);
   const [showBuyInModal, setShowBuyInModal] = useState(false);
   const [buyInBank, setBuyInBank] = useState(null); // null = bakiye yükleniyor
+  const [gameLog, setGameLog] = useState([]); // Faz 4.4: aksiyon/olay logu
+  const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,6 +90,10 @@ function App() {
       setSocket(newSocket);
       setConnectionStatus('connecting');
 
+      // Loga yeni satır ekle (en yeni üstte, son 50 kayıt)
+      const addLog = (kind, text) =>
+        setGameLog(prev => [{ id: Date.now() + Math.random(), kind, text }, ...prev].slice(0, 50));
+
       // B17: Gerçek bağlantı durumu takibi + otomatik yeniden bağlanma sonrası masaya geri katılma
       newSocket.on('connect', () => {
         setConnectionStatus('connected');
@@ -107,12 +122,26 @@ function App() {
         } else {
           setActiveProposal(null);
         }
+        // Kazananı loga bir kez ekle (yeni elde ref sıfırlanır)
+        if (state.gameState === 'finished' && state.winners && state.winners.length) {
+          const key = state.winners.join(',');
+          if (winnerKeyRef.current !== key) {
+            winnerKeyRef.current = key;
+            addLog('winner', `🏆 Kazanan: ${state.winners.join(', ')}`);
+          }
+        } else if (state.gameState === 'pre-flop') {
+          winnerKeyRef.current = '';
+        }
       });
       newSocket.on('receiveCards', (data) => setMyCards(data.cards));
       newSocket.on('handRankUpdate', (data) => setMyHandRank(data.rank));
+      newSocket.on('actionBroadcast', (data) => {
+        addLog('action', formatAction(data.username, data.action, data.amount));
+      });
       newSocket.on('cardRevealed', (data) => {
         setRevealMessages(prev => [...prev, data]);
         setTimeout(() => setRevealMessages(prev => prev.slice(1)), 5000);
+        addLog('reveal', `👁 ${data.username} kart açtı`);
       });
       newSocket.on('newProposal', (proposal) => {
         setActiveProposal(proposal);
@@ -121,6 +150,7 @@ function App() {
         setActiveProposal(null);
         setVoteResult(result);
         setTimeout(() => setVoteResult(null), 5000);
+        addLog('vote', result.passed ? '🗳 Oylama kabul edildi' : result.cancelled ? '🗳 Oylama iptal edildi' : '🗳 Oylama reddedildi');
       });
       newSocket.on('settingChanged', (data) => {
         setVoteResult({ passed: true, setting: data.setting, newValue: data.newValue, immediate: true });
@@ -150,6 +180,8 @@ function App() {
       setRevealMessages([]);
       setActiveProposal(null);
       setVoteResult(null);
+      setGameLog([]);
+      winnerKeyRef.current = '';
     }
   }, [socket, location.pathname]);
 
@@ -351,6 +383,7 @@ function App() {
                 voteResult={voteResult}
                 onProposeSettingChange={handleProposeSettingChange}
                 onVote={handleVote}
+                gameLog={gameLog}
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>

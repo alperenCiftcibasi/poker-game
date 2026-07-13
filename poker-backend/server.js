@@ -236,7 +236,8 @@ io.on('connection', (socket) => {
             socket.emit('error', result.message);
         } else {
             broadcastTableUpdate(io, table);
-            io.to(`table_${tableId}`).emit('actionBroadcast', { username: socket.user.username, action: action });
+            // Faz 4.4: aksiyon logu için amount da yayınlanır (raise için "raise to" toplamı)
+            io.to(`table_${tableId}`).emit('actionBroadcast', { username: socket.user.username, action, amount });
             if (table.gameState === 'finished') await saveTableToDB(table);
         }
     });
