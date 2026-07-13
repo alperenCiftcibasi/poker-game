@@ -85,6 +85,20 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// 👤 MEVCUT KULLANICI (buy-in modalı için taze bakiye)
+router.get('/me', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findByPk(req.user.id, {
+            attributes: ['id', 'username', 'chips', 'isAdmin']
+        });
+        if (!user) return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        res.status(200).json(user);
+    } catch (error) {
+        console.error('Kullanıcı bilgisi hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
 // 🏆 LEADERBOARD (En Zengin Oyuncular)
 router.get('/leaderboard', verifyToken, async (req, res) => {
     try {

@@ -115,11 +115,25 @@ class PokerTable {
 
         this.players.push({
             id: user.id, username: user.username, socketId: user.socketId, chips: user.chips,
+            bankChips: user.bankChips || 0, // oturma anında kasada (masa dışında) kalan çip
             cards:[], currentBet: 0, status: 'waiting', hasActed: false, handDescription: '', pendingLeave: false,
-            totalInvested: 0, revealedCards: []
+            totalInvested: 0, revealedCards: [], disconnected: false
         });
 
         return { success: true, message: "Masaya başarıyla oturdunuz." };
+    }
+
+    // El sırasında bağlantı kopması: anında fold etme; sırası gelince turn timer çözer.
+    markDisconnected(userId) {
+        const player = this.players.find(p => p.id === userId);
+        if (player) player.disconnected = true;
+        return player;
+    }
+
+    markReconnected(userId) {
+        const player = this.players.find(p => p.id === userId);
+        if (player) player.disconnected = false;
+        return player;
     }
 
     togglePendingLeave(userId) {
@@ -544,8 +558,8 @@ class PokerTable {
         if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
 
         this.resetTimer = setTimeout(() => {
-            // Chip'i bitenleri ve ayrılmak isteyenleri masadan çıkar
-            this.players = this.players.filter(p => !p.pendingLeave && p.chips > 0);
+            // Chip'i bitenleri, ayrılmak isteyenleri ve bağlantısı kopanları masadan çıkar
+            this.players = this.players.filter(p => !p.pendingLeave && p.chips > 0 && !p.disconnected);
             this.pot = 0;
             this.communityCards = [];
             this.winners =[];
@@ -631,6 +645,7 @@ class PokerTable {
             activeProposal: this.getProposalState(),
             players: this.players.map((p, i) => ({
                 id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
+                disconnected: !!p.disconnected,
                 cards: cardsVisible ? p.cards : [],
                 handDescription: cardsVisible ? p.handDescription : '',
                 hasCards: p.cards.length > 0,

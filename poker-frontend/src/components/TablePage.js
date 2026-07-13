@@ -358,12 +358,13 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
             {players.map(p => {
               const active = currentPlayer?.id === p.id && isGameActive;
               let statusText = p.status.toUpperCase();
-              if (gameState === 'finished' && p.pendingLeave) statusText = '🚪 MASADAN KALKTI';
+              if (p.disconnected) statusText = '📴 BAĞLANTI KOPTU';
+              else if (gameState === 'finished' && p.pendingLeave) statusText = '🚪 MASADAN KALKTI';
               else if (p.pendingLeave) statusText = '⚠️ AYRILIYOR';
               else if (p.status === 'all-in') statusText = '🔥 ALL-IN';
 
               return (
-                <div key={p.id} className={`player-card ${active ? 'active' : ''} ${p.status === 'folded' ? 'folded' : ''}`}>
+                <div key={p.id} className={`player-card ${active ? 'active' : ''} ${p.status === 'folded' ? 'folded' : ''} ${p.disconnected ? 'disconnected' : ''}`}>
                   <div className="p-info">
                     <span className="p-name">{p.username} {p.id === myInfo.id ? '(Siz)' : ''}</span>
                     <span className="p-chips">{p.chips} 🍪</span>
@@ -433,6 +434,7 @@ const styles = `
   .player-card { background: #34495e; padding: 10px; margin-bottom: 10px; border-radius: 8px; border-left: 5px solid transparent; transition: 0.3s; text-align: left; }
   .player-card.active { border-left-color: #f1c40f; background: #4e6a85; transform: scale(1.02); }
   .player-card.folded { opacity: 0.5; }
+  .player-card.disconnected { opacity: 0.55; border-left-color: #7f8c8d; filter: grayscale(0.6); }
   .p-info { display: flex; justify-content: space-between; font-weight: bold; }
   .p-chips { color: #f1c40f; }
   .p-status { font-size: 11px; margin-top: 5px; color: #bdc3c7; font-weight: bold; }

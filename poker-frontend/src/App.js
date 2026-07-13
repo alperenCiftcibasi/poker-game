@@ -8,6 +8,7 @@ import LobbyPage from './components/LobbyPage';
 import TablePage from './components/TablePage';
 import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
+import BuyInModal from './components/BuyInModal';
 
 const SOCKET_URL = 'http://localhost:5000';
 
@@ -24,6 +25,8 @@ function App() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [activeProposal, setActiveProposal] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
+  const [showBuyInModal, setShowBuyInModal] = useState(false);
+  const [buyInBank, setBuyInBank] = useState(null); // null = bakiye yükleniyor
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -167,8 +170,29 @@ function App() {
     navigate('/login');
   };
 
-  const handleSitAtTable = () => {
-    if (socket && tableState) socket.emit('joinTable', tableState.id);
+  // Masaya oturmadan önce buy-in modalını aç ve taze bakiyeyi getir
+  const handleOpenBuyIn = async () => {
+    if (!socket || !tableState) return;
+    setShowBuyInModal(true);
+    setBuyInBank(null);
+    try {
+      const res = await fetch(`${SOCKET_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setBuyInBank(data.chips);
+      } else {
+        setBuyInBank(user?.chips ?? 0);
+      }
+    } catch (error) {
+      setBuyInBank(user?.chips ?? 0);
+    }
+  };
+
+  const handleConfirmBuyIn = (buyIn) => {
+    if (socket && tableState) socket.emit('joinTable', { tableId: tableState.id, buyIn });
+    setShowBuyInModal(false);
   };
 
   const handleLeaveTable = () => {
@@ -264,10 +288,19 @@ function App() {
         leaderboardData={leaderboardData}
       />
       
-      <AdminPanel 
-        show={showAdminPanel} 
-        onClose={handleCloseAdminPanel} 
+      <AdminPanel
+        show={showAdminPanel}
+        onClose={handleCloseAdminPanel}
         token={token}
+      />
+
+      <BuyInModal
+        show={showBuyInModal}
+        onClose={() => setShowBuyInModal(false)}
+        onConfirm={handleConfirmBuyIn}
+        bank={buyInBank}
+        settings={tableState?.settings}
+        tableName={tableState ? `Masa #${tableState.id}` : ''}
       />
 
       <Routes>
@@ -282,7 +315,7 @@ function App() {
                 myInfo={user}
                 onAction={handleAction}
                 onStartGame={handleStartGame}
-                onSit={handleSitAtTable}
+                onSit={handleOpenBuyIn}
                 onLeave={handleLeaveTable}
                 onRevealCards={handleRevealCards}
                 revealMessages={revealMessages}

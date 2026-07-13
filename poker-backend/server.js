@@ -11,7 +11,8 @@ const authRoutes = require('./routes/auth');
 const tableRoutes = require('./routes/table');
 const adminRoutes = require('./routes/admin');
 const PokerTable = require('./game/PokerTable');
-const User = require('./models/User'); 
+const { activeTables, findSeatedTable } = require('./game/tableRegistry');
+const User = require('./models/User');
 
 const app = express();
 app.use(cors());
@@ -26,11 +27,12 @@ startCronJobs();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-const activeTables = new Map();
-
+// DB invariant'ı: User.chips = kasa + masa. Her persist yolunda bankChips + chips yazılır.
 async function saveTableToDB(table) {
     try {
-        const promises = table.players.map(player => User.update({ chips: player.chips }, { where: { id: player.id } }));
+        const promises = table.players.map(player =>
+            User.update({ chips: (player.bankChips || 0) + player.chips }, { where: { id: player.id } })
+        );
         await Promise.all(promises);
     } catch (error) { console.error('Kaydedilemedi:', error); }
 }
@@ -63,6 +65,10 @@ async function getOrCreateTable(tableId) {
                     console.log(`Masa ${tableId} OTOMATİK olarak yeni tura başladı!`);
                 }
                 broadcastTableUpdate(io, t);
+                // B19: timer-fold / runout / otomatik-restart ile biten ellerde çipleri persist et
+                if (t.gameState === 'finished') {
+                    saveTableToDB(t).catch(err => console.error('Otomatik persist hatası:', err));
+                }
             }
         });
 
@@ -93,43 +99,71 @@ io.on('connection', (socket) => {
         // 🛠️ DÜZELTME: Eğer oyuncu zaten masadaysa (sayfa yenilediyse), 
         // yeni Socket ID'sini masaya kaydet ve gizli kartlarını ona hemen geri yolla!
         const existingPlayer = table.players.find(p => p.id === socket.user.id);
+        let didReconnect = false;
         if (existingPlayer) {
             existingPlayer.socketId = socket.id; // Yeni bağlantı ID'sini güncelle
+            if (existingPlayer.disconnected) {
+                table.markReconnected(socket.user.id); // gri koltuğu geri getir
+                didReconnect = true;
+            }
             if (existingPlayer.cards && existingPlayer.cards.length > 0) {
                 socket.emit('receiveCards', { cards: existingPlayer.cards });
             }
         }
-        
-        socket.join(`table_${tableId}`); 
-        socket.tableId = tableId; 
-        socket.emit('tableUpdated', table.getPublicState()); 
+
+        socket.join(`table_${tableId}`);
+        socket.tableId = tableId;
+        socket.emit('tableUpdated', table.getPublicState());
+        // Yeniden bağlandıysa diğer oyuncular da koltuğun aktifleştiğini görsün
+        if (didReconnect) broadcastTableUpdate(io, table);
     });
 
-    // 🪑 MASAYA OTURMA
-    socket.on('joinTable', async (tableId) => {
+    // 🪑 MASAYA OTURMA (buy-in ile)
+    socket.on('joinTable', async ({ tableId, buyIn } = {}) => {
         const table = await getOrCreateTable(tableId);
         if (!table) return socket.emit('error', 'Masa bulunamadı!');
 
         const existingPlayer = table.players.find(p => p.id === socket.user.id);
-        
         if (existingPlayer) {
-            // 🛠️ DÜZELTME: Oyuncu zaten masadayken butona basarsa ID'sini güncelle ve kartlarını yolla
+            // Zaten masada: ID'yi tazele, yeniden bağlanmayı işle, kartları geri yolla
             existingPlayer.socketId = socket.id;
+            if (existingPlayer.disconnected) table.markReconnected(socket.user.id);
             if (existingPlayer.cards && existingPlayer.cards.length > 0) {
                 socket.emit('receiveCards', { cards: existingPlayer.cards });
             }
-            // Zaten masada olduğunu bildir
-            socket.emit('error', 'Zaten bu masadasınız!');
-        } else {
-            // Masada değilse sıfırdan oturt
-            const dbUser = await User.findByPk(socket.user.id);
-            const joinResult = table.addPlayer({
-                id: socket.user.id, username: socket.user.username,
-                chips: dbUser.chips, socketId: socket.id
-            });
-
-            if (!joinResult.success) return socket.emit('error', joinResult.message);
+            socket.tableId = tableId;
+            socket.join(`table_${tableId}`);
+            broadcastTableUpdate(io, table);
+            return;
         }
+
+        // B8: Aynı kullanıcı başka bir masada oturuyorsa çip kopyalamayı engelle
+        const seatedElsewhere = findSeatedTable(socket.user.id, table);
+        if (seatedElsewhere) {
+            return socket.emit('error', 'Zaten başka bir masada oturuyorsunuz.');
+        }
+
+        // B11: buy-in doğrulaması (kasa bakiyesine ve masa min/max'ına göre)
+        const dbUser = await User.findByPk(socket.user.id);
+        if (!dbUser) return socket.emit('error', 'Kullanıcı bulunamadı!');
+
+        const bank = dbUser.chips;
+        const amount = Number(buyIn);
+        const min = table.minBuyIn > 0 ? table.minBuyIn : 1;
+        const max = table.maxBuyIn > 0 ? table.maxBuyIn : bank;
+
+        if (!Number.isInteger(amount) || amount < min || amount > max || amount > bank) {
+            const upper = Math.min(max, bank);
+            return socket.emit('error', `Geçersiz buy-in. İzin verilen aralık: ${min} - ${upper}. Kasanız: ${bank}.`);
+        }
+
+        // Masaya buyIn kadar çiple otur; kalan kasada tutulur (bankChips).
+        // User.chips zaten toplam bakiyeyi (kasa + masa) tutar; oturmak toplamı değiştirmez, persist gerekmez.
+        const joinResult = table.addPlayer({
+            id: socket.user.id, username: socket.user.username, socketId: socket.id,
+            chips: amount, bankChips: bank - amount
+        });
+        if (!joinResult.success) return socket.emit('error', joinResult.message);
 
         socket.tableId = tableId;
         socket.join(`table_${tableId}`);
@@ -149,6 +183,11 @@ io.on('connection', (socket) => {
         const table = activeTables.get(tableId);
         if (!table) return;
         if (table.gameState !== 'waiting' && table.gameState !== 'finished') return;
+
+        // B10: sadece masada oturan bir oyuncu oyunu başlatabilir
+        if (!table.players.some(p => p.id === socket.user.id)) {
+            return socket.emit('error', 'Sadece masadaki oyuncular oyunu başlatabilir.');
+        }
 
         const result = table.startGame();
         if (!result.success) {
@@ -269,40 +308,43 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', async () => {
-        if (socket.tableId) {
-            const table = activeTables.get(socket.tableId);
-            if (table) {
-                const leavingPlayer = table.players.find(p => p.id === socket.user.id);
-                if (leavingPlayer) {
-                    // Chip'leri kaydet
-                    await User.update({ chips: leavingPlayer.chips }, { where: { id: leavingPlayer.id } });
+        if (!socket.tableId) return;
+        const table = activeTables.get(socket.tableId);
+        if (!table) return;
 
-                    const hadProposal = !!table.activeProposal;
+        const leavingPlayer = table.players.find(p => p.id === socket.user.id);
+        if (!leavingPlayer) return;
 
-                    // Oyun devam ediyorsa, oyuncuyu otomatik fold et
-                    if (table.gameState !== 'waiting' && table.gameState !== 'finished') {
-                        if (leavingPlayer.status === 'playing') {
-                            console.log(`Oyuncu ${leavingPlayer.username} bağlantısı koptu, otomatik fold edildi.`);
-                            table.handleAction(leavingPlayer.id, 'fold');
-                            broadcastTableUpdate(io, table);
-                        }
-                    } else {
-                        // Oyun başlamamışsa veya bitmişse oyuncuyu masadan çıkar
-                        table.removePlayer(socket.user.id);
+        // B8: Eski sekme koruması — sadece güncel bağlantının disconnect'i işlenir.
+        // (Kullanıcı yeni bir sekme açtıysa socketId güncellenmiştir; eski sekmenin
+        //  kapanması canlı oyuncuyu düşürmemelidir.)
+        if (leavingPlayer.socketId !== socket.id) return;
 
-                        // Oylama iptal edildiyse bildir
-                        if (hadProposal && !table.activeProposal) {
-                            io.to(`table_${socket.tableId}`).emit('voteResult', {
-                                passed: false,
-                                cancelled: true,
-                                message: 'Oylama iptal edildi (oyuncu ayrıldı).'
-                            });
-                        }
+        // Chip'leri kaydet (kasa + masa)
+        await User.update(
+            { chips: (leavingPlayer.bankChips || 0) + leavingPlayer.chips },
+            { where: { id: leavingPlayer.id } }
+        );
 
-                        broadcastTableUpdate(io, table);
-                    }
-                }
+        if (table.gameState === 'waiting') {
+            // Oyun başlamadıysa oyuncuyu hemen masadan çıkar (ghost koltuk kalmasın)
+            const hadProposal = !!table.activeProposal;
+            table.removePlayer(socket.user.id);
+            if (hadProposal && !table.activeProposal) {
+                io.to(`table_${socket.tableId}`).emit('voteResult', {
+                    passed: false,
+                    cancelled: true,
+                    message: 'Oylama iptal edildi (oyuncu ayrıldı).'
+                });
             }
+            broadcastTableUpdate(io, table);
+        } else {
+            // B9: El sürüyor veya bitmiş bekliyor — anında fold ETME.
+            // İşaretle; sırası gelince turn timer check/fold ile çözer (yeniden bağlanma
+            // süresi tanır), el sonunda reset oyuncuyu masadan çıkarır.
+            console.log(`Oyuncu ${leavingPlayer.username} bağlantısı koptu (işaretlendi).`);
+            table.markDisconnected(socket.user.id);
+            broadcastTableUpdate(io, table);
         }
     });
 });
