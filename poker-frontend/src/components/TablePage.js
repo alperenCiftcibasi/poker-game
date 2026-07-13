@@ -50,14 +50,17 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
   const currentPlayer = players[currentTurnIndex];
   const isMyTurn = amISitting && currentPlayer?.id === myInfo?.id;
 
-  // Bahis Matematiği
+  // Bahis Matematiği (sunucudan gelen betToMatch/minRaiseTo esas alınır)
   const activePlayers = players.filter(p => p.status !== 'folded');
   const maxBetOnTable = activePlayers.length > 0 ? Math.max(0, ...activePlayers.map(p => p.currentBet)) : 0;
-  const callAmount = amISitting ? (maxBetOnTable - (myPlayer?.currentBet || 0)) : 0;
-  
-  const minRaise = callAmount > 0 ? callAmount + 50 : 50;
-  const maxRaise = myPlayer?.chips || 0;
-  const safeMinRaise = Math.min(minRaise, maxRaise);
+  const betToMatch = tableState?.betToMatch ?? maxBetOnTable;
+  const callAmount = amISitting ? Math.max(0, betToMatch - (myPlayer?.currentBet || 0)) : 0;
+
+  // Raise değerleri "raise to" (bu sokaktaki toplam bahis) cinsindendir
+  const minRaiseTo = tableState?.minRaiseTo ?? (betToMatch + 50);
+  const maxRaiseTo = (myPlayer?.currentBet || 0) + (myPlayer?.chips || 0);
+  const safeMinRaise = Math.min(minRaiseTo, maxRaiseTo);
+  const raiseStep = tableState?.settings?.smallBlind || 10;
 
   // Zamanlayıcı
   useEffect(() => {
@@ -97,8 +100,8 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
     turnTimerDuration: 'Tur Süresi'
   };
 
-  const handleDecrease = () => setRaiseAmount(prev => Math.max(safeMinRaise, prev - 50));
-  const handleIncrease = () => setRaiseAmount(prev => Math.min(maxRaise, prev + 50));
+  const handleDecrease = () => setRaiseAmount(prev => Math.max(safeMinRaise, prev - raiseStep));
+  const handleIncrease = () => setRaiseAmount(prev => Math.min(maxRaiseTo, prev + raiseStep));
   const handleSliderChange = (e) => setRaiseAmount(Number(e.target.value));
 
   return (
@@ -307,34 +310,34 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
                   <div className="primary-actions">
                     <button className="btn-move fold" onClick={() => onAction('fold')}>FOLD</button>
                     
-                    <button className="btn-move call" onClick={() => onAction('call')}>
-                      {callAmount > 0 
-                        ? (myPlayer.chips <= callAmount ? `CALL ${myPlayer.chips} (ALL-IN)` : `CALL ${callAmount}`) 
+                    <button className="btn-move call" onClick={() => onAction(callAmount > 0 ? 'call' : 'check')}>
+                      {callAmount > 0
+                        ? (myPlayer.chips <= callAmount ? `CALL ${myPlayer.chips} (ALL-IN)` : `CALL ${callAmount}`)
                         : 'CHECK'}
                     </button>
                   </div>
 
-                  {maxRaise > callAmount && (
+                  {maxRaiseTo > betToMatch && (
                     <div className="raise-section">
                       <div className="slider-controls">
                         <button className="btn-step" onClick={handleDecrease}>-</button>
-                        <input 
-                          type="range" 
-                          min={safeMinRaise} 
-                          max={maxRaise} 
-                          step="50" 
-                          value={raiseAmount} 
+                        <input
+                          type="range"
+                          min={safeMinRaise}
+                          max={maxRaiseTo}
+                          step={raiseStep}
+                          value={raiseAmount}
                           onChange={handleSliderChange}
                           className="raise-slider"
                         />
                         <button className="btn-step" onClick={handleIncrease}>+</button>
                       </div>
-                      
-                      <button 
-                        className="btn-move raise btn-raise-confirm" 
+
+                      <button
+                        className="btn-move raise btn-raise-confirm"
                         onClick={() => onAction('raise', raiseAmount)}
                       >
-                        RAISE {raiseAmount} {raiseAmount === maxRaise && ' (ALL-IN) 🔥'}
+                        RAISE {raiseAmount} {raiseAmount >= maxRaiseTo && ' (ALL-IN) 🔥'}
                       </button>
                     </div>
                   )}

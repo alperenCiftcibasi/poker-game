@@ -1,3 +1,5 @@
+const crypto = require('node:crypto');
+
 class Deck {
     constructor() {
         this.cards =[];
@@ -18,10 +20,10 @@ class Deck {
         }
     }
 
-    // Desteyi Karıştır (Fisher-Yates Algoritması - En güvenli rastgele karıştırma)
+    // Desteyi Karıştır (Fisher-Yates + kriptografik rastgelelik)
     shuffle() {
         for (let i = this.cards.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
+            const j = crypto.randomInt(0, i + 1);
             // Kartların yerini değiştir
             [this.cards[i], this.cards[j]] = [this.cards[j], this.cards[i]];
         }

@@ -2,25 +2,39 @@ const Deck = require('./Deck');
 const Hand = require('pokersolver').Hand;
 
 class PokerTable {
-    constructor(id, maxPlayers, smallBlind, bigBlind, updateCallback) {
+    constructor(id, maxPlayers, smallBlind, bigBlind, updateCallback, options = {}) {
         this.id = id;
         this.maxPlayers = maxPlayers;
         this.smallBlind = smallBlind;
         this.bigBlind = bigBlind;
         this.updateCallback = updateCallback;
         this.resetTimer = null;
-        
+
         this.turnTimer = null;
-        this.turnEndTime = null; 
-        
-        this.players = []; 
-        this.deck = new Deck(); 
-        this.communityCards = []; 
-        this.pot = 0; 
-        
+        this.turnEndTime = null;
+
+        // Test için deste enjeksiyonu
+        this.createDeck = options.createDeck || (() => new Deck());
+
+        this.players = [];
+        this.deck = this.createDeck();
+        this.communityCards = [];
+        this.pot = 0;
+
         this.gameState = 'waiting';
         this.currentTurnIndex = -1;
         this.winners = [];
+
+        // Bahis turu durumu
+        this.dealerId = null;      // buton sahibinin user id'si (eller arası kalıcı)
+        this.dealerIndex = -1;
+        this.sbIndex = -1;
+        this.bbIndex = -1;
+        this.betToMatch = 0;       // bu sokakta eşitlenmesi gereken bahis
+        this.lastRaiseSize = bigBlind; // son tam raise artışı (min-raise hesabı için)
+        this.handNumber = 0;       // bayat timer'ları geçersiz kılmak için
+        this.runoutTimer = null;
+        this.handRevealed = false; // sadece showdown'la biten ellerde kartlar açılır
 
         // Değiştirilebilir ayarlar
         this.turnTimerDuration = 30000;
@@ -38,17 +52,38 @@ class PokerTable {
         return `${r}${suitMap[card.suit]}`;
     }
 
+    // fromIndex'ten sonraki (sarmalayarak) predicate'i sağlayan ilk oyuncunun indeksi; yoksa -1
+    _nextIndexWhere(fromIndex, predicate) {
+        const n = this.players.length;
+        if (n === 0) return -1;
+        for (let step = 1; step <= n; step++) {
+            const idx = (fromIndex + step) % n;
+            if (predicate(this.players[idx])) return idx;
+        }
+        return -1;
+    }
+
+    // Butonun solundan itibaren adaylar arasından ilk oyuncu (küsurat çip dağıtımı için)
+    _firstFromDealer(candidates) {
+        const n = this.players.length;
+        for (let step = 1; step <= n; step++) {
+            const p = this.players[(this.dealerIndex + step) % n];
+            if (candidates.includes(p)) return p;
+        }
+        return candidates[0];
+    }
+
     evaluatePlayerHand(player) {
         if (player.status === 'folded' || player.cards.length === 0) return null;
-        
+
         // Community kartları varsa kombinasyonu hesapla
         if (this.communityCards.length > 0) {
             const combinedCards = player.cards.concat(this.communityCards);
             const convertedCards = combinedCards.map(c => this._convertCard(c));
-            try { return Hand.solve(convertedCards).descr; } 
+            try { return Hand.solve(convertedCards).descr; }
             catch (e) { return "Hesaplanıyor..."; }
         }
-        
+
         // Pre-flop: Sadece iki kartımızı değerlendir
         const holeCards = player.cards.map(c => this._convertCard(c));
         try {
@@ -59,14 +94,14 @@ class PokerTable {
                 const rank2 = holeCards[1][0];
                 const suit1 = holeCards[0][1];
                 const suit2 = holeCards[1][1];
-                
+
                 if (rank1 === rank2) return `Çift ${rank1}`;
                 if (suit1 === suit2) return `${rank1}${rank2} Suited`;
                 return `${rank1}${rank2} Offsuit`;
             }
             return hand.descr;
-        } catch (e) { 
-            return "Hesaplanıyor..."; 
+        } catch (e) {
+            return "Hesaplanıyor...";
         }
     }
 
@@ -114,8 +149,10 @@ class PokerTable {
         if (this.players.length < 2 && this.gameState !== 'waiting') {
             this.gameState = 'waiting';
             this.pot = 0;
+            this.currentTurnIndex = -1;
             this.clearTurnTimer();
             if (this.resetTimer) clearTimeout(this.resetTimer);
+            if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
         }
     }
 
@@ -127,26 +164,28 @@ class PokerTable {
 
     startTurnTimer() {
         this.clearTurnTimer();
-        if (this.gameState === 'waiting' || this.gameState === 'finished' || this.gameState === 'showdown') return;
+        const activeStates = ['pre-flop', 'flop', 'turn', 'river'];
+        if (!activeStates.includes(this.gameState)) return;
+        if (this.currentTurnIndex < 0) return;
 
-        this.turnEndTime = Date.now() + this.turnTimerDuration; 
+        this.turnEndTime = Date.now() + this.turnTimerDuration;
         const currentPlayer = this.players[this.currentTurnIndex];
-        
+        const handAtSchedule = this.handNumber;
+
         this.turnTimer = setTimeout(() => {
-            if (this.gameState !== 'waiting' && this.players[this.currentTurnIndex]?.id === currentPlayer.id) {
-                const maxBet = Math.max(...this.players.map(p => p.currentBet));
-                const callAmount = maxBet - currentPlayer.currentBet;
-                const action = callAmount === 0 ? 'call' : 'fold'; 
-                this.handleAction(currentPlayer.id, action);
-                if (this.updateCallback) this.updateCallback();
-            }
+            if (this.handNumber !== handAtSchedule) return;
+            if (this.players[this.currentTurnIndex]?.id !== currentPlayer.id) return;
+            // Bahis eşitse check, değilse fold
+            const action = currentPlayer.currentBet === this.betToMatch ? 'check' : 'fold';
+            this.handleAction(currentPlayer.id, action);
+            if (this.updateCallback) this.updateCallback();
         }, this.turnTimerDuration);
     }
 
     startGame() {
         if (this.players.length < 2) return { success: false, message: "Yetersiz oyuncu!" };
 
-        // Chip kontrolü: En az bir oyuncunun chip'i olmalı
+        // Chip kontrolü: En az iki oyuncunun chip'i olmalı
         const playersWithChips = this.players.filter(p => p.chips > 0);
         if (playersWithChips.length < 2) {
             return { success: false, message: "Oyunu başlatmak için en az 2 oyuncunun chip'i olmalı!" };
@@ -156,28 +195,60 @@ class PokerTable {
         if (this.activeProposal) {
             this._clearProposal();
         }
-        
+
         if (this.resetTimer) clearTimeout(this.resetTimer);
+        if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
         this.clearTurnTimer();
 
-        this.gameState = 'pre-flop'; 
-        this.deck = new Deck(); 
-        this.communityCards = []; 
+        this.handNumber++;
+        this.gameState = 'pre-flop';
+        this.deck = this.createDeck();
+        this.communityCards = [];
         this.pot = 0;
         this.winners = [];
-        
+        this.handRevealed = false;
+        this.betToMatch = 0;
+        this.lastRaiseSize = this.bigBlind;
+
         this.players.forEach(player => {
-            player.cards =[this.deck.draw(), this.deck.draw()];
-            player.status = 'playing';
+            player.currentBet = 0;
             player.hasActed = false;
             player.handDescription = '';
             player.pendingLeave = false;
             player.totalInvested = 0;
             player.revealedCards = [];
+            if (player.chips > 0) {
+                player.cards = [this.deck.draw(), this.deck.draw()];
+                player.status = 'playing';
+            } else {
+                player.cards = [];
+                player.status = 'sitting-out';
+            }
         });
 
-        const sbPlayer = this.players[0];
-        const bbPlayer = this.players[1];
+        const isInHand = (p) => p.status === 'playing';
+        const eligibleCount = this.players.filter(isInHand).length;
+
+        // Buton rotasyonu: önceki dealer'dan sonraki uygun oyuncu
+        const prevDealerSeat = this.players.findIndex(p => p.id === this.dealerId);
+        if (prevDealerSeat === -1) {
+            this.dealerIndex = this.players.findIndex(isInHand);
+        } else {
+            this.dealerIndex = this._nextIndexWhere(prevDealerSeat, isInHand);
+        }
+        this.dealerId = this.players[this.dealerIndex].id;
+
+        // Blind pozisyonları: heads-up'ta dealer SB'dir
+        if (eligibleCount === 2) {
+            this.sbIndex = this.dealerIndex;
+            this.bbIndex = this._nextIndexWhere(this.dealerIndex, isInHand);
+        } else {
+            this.sbIndex = this._nextIndexWhere(this.dealerIndex, isInHand);
+            this.bbIndex = this._nextIndexWhere(this.sbIndex, isInHand);
+        }
+
+        const sbPlayer = this.players[this.sbIndex];
+        const bbPlayer = this.players[this.bbIndex];
 
         const sbAmt = Math.min(sbPlayer.chips, this.smallBlind);
         this.placeBet(sbPlayer, sbAmt);
@@ -187,206 +258,290 @@ class PokerTable {
         this.placeBet(bbPlayer, bbAmt);
         if (bbPlayer.chips === 0) bbPlayer.status = 'all-in';
 
-        sbPlayer.hasActed = true;
-        bbPlayer.hasActed = true;
-        this.currentTurnIndex = 0; 
+        // hasActed bilinçli olarak false bırakılır: BB (ve SB) preflop option'ını korur
+        this.betToMatch = Math.max(sbPlayer.currentBet, bbPlayer.currentBet);
+        this.lastRaiseSize = this.bigBlind;
 
-        this.startTurnTimer(); 
+        // Preflop ilk söz: heads-up'ta SB/dealer, 3+ oyuncuda UTG (BB'nin solu).
+        // All-in olan blind'lar atlanır; kimse konuşamıyorsa doğrudan runout.
+        const isPlaying = (p) => p.status === 'playing';
+        let firstIdx;
+        if (eligibleCount === 2) {
+            firstIdx = isPlaying(sbPlayer) ? this.sbIndex : this._nextIndexWhere(this.sbIndex, isPlaying);
+        } else {
+            firstIdx = this._nextIndexWhere(this.bbIndex, isPlaying);
+        }
+
+        if (firstIdx === -1) {
+            // Herkes blind'lardan all-in: kısa bir beklemeyle otomatik açılım başlat
+            this.currentTurnIndex = -1;
+            this._scheduleRunout(1500);
+        } else {
+            this.currentTurnIndex = firstIdx;
+            this.startTurnTimer();
+        }
+
         return { success: true, message: "Oyun başladı!" };
     }
 
     placeBet(player, amount) {
-        player.chips -= amount; 
-        player.currentBet += amount; 
+        player.chips -= amount;
+        player.currentBet += amount;
         player.totalInvested += amount;
         this.pot += amount;
     }
 
     handleAction(userId, action, amount = 0) {
-        if (this.gameState === 'waiting' || this.gameState === 'finished') return { success: false, message: "Oyun başlamadı!" };
+        const activeStates = ['pre-flop', 'flop', 'turn', 'river'];
+        if (!activeStates.includes(this.gameState)) return { success: false, message: "Şu an hamle yapılamaz!" };
+        if (this.currentTurnIndex === -1) return { success: false, message: "Şu an hamle yapılamaz!" };
+
         const playerIndex = this.players.findIndex(p => p.id === userId);
-        const player = this.players[playerIndex];
+        if (playerIndex === -1) return { success: false, message: "Bu masada oturmuyorsunuz!" };
         if (playerIndex !== this.currentTurnIndex) return { success: false, message: "Sıra sizde değil!" };
 
+        const player = this.players[playerIndex];
+        if (player.status !== 'playing') return { success: false, message: "Şu an hamle yapamazsınız!" };
+
         switch (action) {
-            case 'fold': 
-                player.status = 'folded'; 
-                player.cards =[]; 
+            case 'fold':
+                player.status = 'folded';
+                player.cards = [];
+                player.revealedCards = [];
                 break;
-            case 'call':
-                const maxBetCall = Math.max(...this.players.filter(p => p.status !== 'folded').map(p => p.currentBet));
-                let callAmount = maxBetCall - player.currentBet;
-                if (player.chips <= callAmount) {
-                    callAmount = player.chips;
-                    player.status = 'all-in';
+
+            case 'check':
+                if (player.currentBet !== this.betToMatch) {
+                    return { success: false, message: "Ortada bahis var, check yapamazsınız!" };
                 }
-                this.placeBet(player, callAmount);
                 break;
-            case 'raise':
-                // Frontend'den gelen amount = oyuncunun toplam bahis miktarı (currentBet dahil)
-                // Oyuncu şu ana kadar bu turda ne kadar yatırdıysa onu çıkarmalıyız
-                const totalBetWanted = parseInt(amount);
-                let additionalBet = totalBetWanted - player.currentBet;
-                
-                // Eğer oyuncunun chip'i yeterli değilse, hepsini yatırır (all-in)
-                if (player.chips <= additionalBet) {
-                    additionalBet = player.chips;
-                    player.status = 'all-in';
+
+            case 'call': {
+                const owed = this.betToMatch - player.currentBet;
+                if (owed > 0) {
+                    const pay = Math.min(owed, player.chips);
+                    this.placeBet(player, pay);
+                    if (player.chips === 0) player.status = 'all-in';
                 }
-                this.placeBet(player, additionalBet);
+                // owed <= 0 ise check gibi davranır (frontend uyumluluğu)
                 break;
+            }
+
+            case 'raise': {
+                // amount = bu sokaktaki toplam hedef bahis ("raise to")
+                let total = Number(amount);
+                if (!Number.isInteger(total) || total <= this.betToMatch) {
+                    return { success: false, message: "Geçersiz raise miktarı!" };
+                }
+
+                let additional = total - player.currentBet;
+                let isAllIn = false;
+                if (additional >= player.chips) {
+                    additional = player.chips;
+                    total = player.currentBet + additional;
+                    isAllIn = true;
+                }
+
+                const minRaiseTo = this.betToMatch + this.lastRaiseSize;
+                if (!isAllIn && total < minRaiseTo) {
+                    return { success: false, message: `Minimum raise: ${minRaiseTo}` };
+                }
+
+                this.placeBet(player, additional);
+                if (isAllIn) player.status = 'all-in';
+
+                if (total - this.betToMatch >= this.lastRaiseSize) {
+                    // Tam raise: bahis herkes için yeniden açılır
+                    this.lastRaiseSize = total - this.betToMatch;
+                    this.betToMatch = total;
+                    this.players.forEach(p => {
+                        if (p !== player && p.status === 'playing') p.hasActed = false;
+                    });
+                } else if (total > this.betToMatch) {
+                    // Kısa all-in raise: eşitlenecek miktar artar ama bahis yeniden açılmaz
+                    this.betToMatch = total;
+                }
+                // total <= betToMatch (all-in kırpması sonrası): bu bir all-in call'dur, durum değişmez
+                break;
+            }
+
+            default:
+                return { success: false, message: "Geçersiz hamle!" };
         }
-        player.hasActed = true; 
+
+        player.hasActed = true;
         this.checkNextStage();
         return { success: true, message: `Hamle: ${action}` };
     }
 
     checkNextStage() {
-        const activePlayers = this.players.filter(p => p.status !== 'folded');
-        if (activePlayers.length === 1) { 
+        const activePlayers = this.players.filter(p => p.status !== 'folded' && p.status !== 'sitting-out');
+        if (activePlayers.length === 1) {
+            // Herkes çekildi: pot tek kalana, kartlar açılmadan
             activePlayers[0].chips += this.pot;
-            this.endGame([activePlayers[0].username], "Diğerleri çekildi"); 
-            return; 
+            this.pot = 0;
+            this.endGame([activePlayers[0].username], "Diğerleri çekildi");
+            return;
         }
-        
+
         const playingPlayers = this.players.filter(p => p.status === 'playing');
-        const maxBet = Math.max(...activePlayers.map(p => p.currentBet));
-        
-        let streetFinished = true;
-        for (let p of playingPlayers) {
-            if (p.currentBet < maxBet || (!p.hasActed && playingPlayers.length > 1)) {
-                streetFinished = false;
-                break;
-            }
+        const roundDone = playingPlayers.every(p => p.hasActed && p.currentBet === this.betToMatch);
+
+        if (!roundDone) {
+            this.nextTurn();
+            return;
         }
-        
-        if (streetFinished) { 
-            // Bahis turu bitti. Şimdi kontrol edelim:
-            // Eğer "playing" statüsünde (yani hala çipi olan ve all-in olmayan) 
-            // 1 kişi veya 0 kişi kaldıysa, artık bahis yapılamaz. Kartlar otomatik açılmalı.
-            if (playingPlayers.length <= 1) {
-                this.startAutoRunout(); // 🆕 OTOMATİK KART AÇMA BAŞLAT
-            } else {
-                this.advanceToNextStreet(); // Normal akış
-            }
-        } else { 
-            this.nextTurn(); 
+
+        if (playingPlayers.length <= 1) {
+            // Bahis yapabilecek en fazla 1 kişi kaldı: kartlar otomatik açılır
+            this.startAutoRunout();
+        } else {
+            this.advanceToNextStreet();
         }
     }
 
-    // 🆕 YENİ: Otomatik Kart Açma Döngüsü (5 Saniye Arayla)
+    _scheduleRunout(delay) {
+        if (this.runoutTimer) clearTimeout(this.runoutTimer);
+        const handAtSchedule = this.handNumber;
+        this.runoutTimer = setTimeout(() => {
+            this.runoutTimer = null;
+            if (this.handNumber !== handAtSchedule) return;
+            this.startAutoRunout();
+        }, delay);
+    }
+
+    // Otomatik kart açma döngüsü (5 saniye arayla)
     startAutoRunout() {
-        this.clearTurnTimer(); // Oyuncu sürelerini durdur
-        
-        // Eğer oyun zaten bittiyse veya showdown ise işlem yap
+        this.clearTurnTimer();
+        this.currentTurnIndex = -1; // runout sırasında kimse hamle yapamaz
+
         if (this.gameState === 'showdown') {
             this.determineWinner();
             return;
         }
 
-        // Bir sonraki sokağa geç (Kart aç)
         this.advanceToNextStreet(true); // true = auto mode
-        
-        // Herkese güncellemeyi gönder
         if (this.updateCallback) this.updateCallback();
 
-        // 5 Saniye sonra kendini tekrar çağır (Recursive)
-        // Eğer showdown'a geldiyse, advanceToNextStreet içinde determineWinner çağrılır ve oyun biter.
         if (this.gameState !== 'finished' && this.gameState !== 'waiting') {
-            setTimeout(() => {
-                this.startAutoRunout();
-            }, 5000); // 5 Saniye Bekleme
+            this._scheduleRunout(5000);
         }
     }
 
     advanceToNextStreet(isAuto = false) {
         this.players.forEach(p => { p.currentBet = 0; p.hasActed = false; });
-        
-        if (this.gameState === 'pre-flop') { this.gameState = 'flop'; this.communityCards.push(this.deck.draw(), this.deck.draw(), this.deck.draw()); } 
-        else if (this.gameState === 'flop') { this.gameState = 'turn'; this.communityCards.push(this.deck.draw()); } 
-        else if (this.gameState === 'turn') { this.gameState = 'river'; this.communityCards.push(this.deck.draw()); } 
-        else if (this.gameState === 'river') { this.gameState = 'showdown'; this.determineWinner(); return; }
+        this.betToMatch = 0;
+        this.lastRaiseSize = this.bigBlind;
 
-        // Eğer otomatik moddaysak (Auto Runout), sıra belirlemeye gerek yok, sadece kartı açıp çıkıyoruz.
-        // startAutoRunout fonksiyonu döngüyü yönetecek.
+        if (this.gameState === 'pre-flop') { this.gameState = 'flop'; this.communityCards.push(this.deck.draw(), this.deck.draw(), this.deck.draw()); }
+        else if (this.gameState === 'flop') { this.gameState = 'turn'; this.communityCards.push(this.deck.draw()); }
+        else if (this.gameState === 'turn') { this.gameState = 'river'; this.communityCards.push(this.deck.draw()); }
+        else if (this.gameState === 'river') { this.gameState = 'showdown'; this.determineWinner(); return; }
+        else { return; }
+
         if (isAuto) return;
 
-        const playingPlayers = this.players.filter(p => p.status === 'playing');
-        
-        // Bu güvenlik kontrolü: Eğer normal akışta yanlışlıkla buraya geldiysek ve bahis yapacak kimse yoksa
-        if (playingPlayers.length <= 1) {
+        // Postflop ilk söz: butonun solundan itibaren ilk aktif oyuncu
+        // (heads-up'ta dealer+1 = BB olduğundan dealer doğal olarak son konuşur)
+        const first = this._nextIndexWhere(this.dealerIndex, p => p.status === 'playing');
+        if (first === -1) {
             this.startAutoRunout();
-        } else {
-            this.currentTurnIndex = 0; 
-            while (this.currentTurnIndex < this.players.length && this.players[this.currentTurnIndex].status !== 'playing') {
-                this.currentTurnIndex++;
-            }
-            this.startTurnTimer(); 
+            return;
         }
+        this.currentTurnIndex = first;
+        this.startTurnTimer();
     }
 
     determineWinner() {
-        const activePlayers = this.players.filter(p => p.status !== 'folded');
+        const contenders = this.players.filter(p =>
+            p.status !== 'folded' && p.status !== 'sitting-out' && p.cards.length > 0
+        );
+        const payouts = new Map(); // userId -> kazanılan miktar
+        let winnersData = [];
+
         try {
-            activePlayers.forEach(player => {
-                const holeCards = player.cards.map(c => this._convertCard(c));
-                const boardCards = this.communityCards.map(c => this._convertCard(c));
-                player.solvedHand = Hand.solve(holeCards.concat(boardCards));
-                player.handDescription = player.solvedHand.descr; 
-            });
+            if (contenders.length === 0) throw new Error("Showdown'da oyuncu kalmadı");
 
-            let playersWithInvested = this.players.filter(p => p.totalInvested > 0);
-            playersWithInvested.sort((a, b) => a.totalInvested - b.totalInvested);
+            if (contenders.length === 1) {
+                payouts.set(contenders[0].id, this.pot);
+                winnersData.push(contenders[0].username);
+            } else {
+                contenders.forEach(player => {
+                    const holeCards = player.cards.map(c => this._convertCard(c));
+                    const boardCards = this.communityCards.map(c => this._convertCard(c));
+                    player.solvedHand = Hand.solve(holeCards.concat(boardCards));
+                    player.handDescription = player.solvedHand.descr;
+                });
 
-            let winnersData =[];
-            let previousInvested = 0;
+                // Yatırım seviyelerine göre katmanlı pot dağıtımı (side pot)
+                const invested = this.players.filter(p => p.totalInvested > 0);
+                const levels = [...new Set(invested.map(p => p.totalInvested))].sort((a, b) => a - b);
 
-            for (let i = 0; i < playersWithInvested.length; i++) {
-                const p = playersWithInvested[i];
-                const contribution = p.totalInvested - previousInvested;
-                
-                if (contribution > 0) {
-                    let sidePotAmount = 0;
-                    this.players.forEach(player => {
-                        const take = Math.min(player.totalInvested - previousInvested, contribution);
-                        if (take > 0) sidePotAmount += take;
+                let previous = 0;
+                for (const level of levels) {
+                    const contribution = level - previous;
+                    let potAmount = 0;
+                    invested.forEach(p => {
+                        potAmount += Math.min(Math.max(p.totalInvested - previous, 0), contribution);
                     });
 
-                    const eligibleActivePlayers = activePlayers.filter(ap => ap.totalInvested >= p.totalInvested);
-                    
-                    if (eligibleActivePlayers.length > 1) {
-                        const hands = eligibleActivePlayers.map(ap => ap.solvedHand);
-                        const winningHands = Hand.winners(hands);
-                        const winnersOfThisPot = eligibleActivePlayers.filter(ap => winningHands.includes(ap.solvedHand));
-                        const splitAmount = Math.floor(sidePotAmount / winnersOfThisPot.length);
-                        winnersOfThisPot.forEach(w => {
-                            w.chips += splitAmount;
+                    const eligibles = contenders.filter(p => p.totalInvested >= level);
+                    if (eligibles.length > 1) {
+                        const winningHands = Hand.winners(eligibles.map(p => p.solvedHand));
+                        const potWinners = eligibles.filter(p => winningHands.includes(p.solvedHand));
+                        const share = Math.floor(potAmount / potWinners.length);
+                        const remainder = potAmount - share * potWinners.length;
+
+                        potWinners.forEach(w => {
+                            payouts.set(w.id, (payouts.get(w.id) || 0) + share);
                             winnersData.push(w.username);
                         });
-                    } else if (eligibleActivePlayers.length === 1) {
-                        eligibleActivePlayers[0].chips += sidePotAmount;
+                        // Küsurat çip: butonun solundan itibaren ilk kazanana
+                        if (remainder > 0) {
+                            const oddChipWinner = this._firstFromDealer(potWinners);
+                            payouts.set(oddChipWinner.id, (payouts.get(oddChipWinner.id) || 0) + remainder);
+                        }
+                    } else if (eligibles.length === 1) {
+                        // Karşılanmayan bahis iadesi (uncalled bet)
+                        payouts.set(eligibles[0].id, (payouts.get(eligibles[0].id) || 0) + potAmount);
                     }
-                    previousInvested = p.totalInvested;
+                    previous = level;
                 }
             }
 
-            const uniqueWinners = [...new Set(winnersData)];
-            const winningNames = uniqueWinners.length > 0 ? uniqueWinners : [activePlayers[0].username];
-            
-            this.endGame(winningNames, "Showdown"); 
-        } catch (error) { 
-            console.error("Hata:", error); 
-            if (activePlayers.length > 0) activePlayers[0].chips += this.pot;
-            this.endGame([activePlayers[0].username], "Hata"); 
+            const totalPaid = [...payouts.values()].reduce((a, b) => a + b, 0);
+            if (totalPaid !== this.pot) {
+                console.error(`[Masa ${this.id}] Pot dağıtım uyuşmazlığı: pot=${this.pot}, dağıtılan=${totalPaid}`);
+            }
+        } catch (error) {
+            console.error(`[Masa ${this.id}] Kazanan belirlenirken hata:`, error);
+            // Güvenli geri dönüş: herkese kendi yatırımı iade edilir
+            payouts.clear();
+            winnersData = [];
+            this.players.forEach(p => {
+                if (p.totalInvested > 0) payouts.set(p.id, p.totalInvested);
+            });
         }
+
+        // Ödemeleri tek geçişte uygula
+        payouts.forEach((amount, userId) => {
+            const p = this.players.find(pl => pl.id === userId);
+            if (p) p.chips += amount;
+        });
+        this.pot = 0;
+
+        this.handRevealed = true; // showdown: kartlar herkese açılır
+        this.endGame([...new Set(winnersData)], "Showdown");
     }
-    
+
     endGame(winnerNames, reason) {
         this.gameState = 'finished';
         this.winners = winnerNames;
-        this.clearTurnTimer(); 
-        
+        this.currentTurnIndex = -1;
+        this.clearTurnTimer();
+
         if (this.resetTimer) clearTimeout(this.resetTimer);
+        if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
 
         this.resetTimer = setTimeout(() => {
             // Chip'i bitenleri ve ayrılmak isteyenleri masadan çıkar
@@ -394,30 +549,36 @@ class PokerTable {
             this.pot = 0;
             this.communityCards = [];
             this.winners =[];
+            this.dealerIndex = -1;
+            this.sbIndex = -1;
+            this.bbIndex = -1;
+            this.betToMatch = 0;
+            this.handRevealed = false;
             this.players.forEach(p => {
                 p.cards =[]; p.status = 'waiting'; p.currentBet = 0; p.handDescription = ''; p.pendingLeave = false; p.totalInvested = 0; p.revealedCards = [];
             });
 
             // En az 2 oyuncu ve en az 2 oyuncunun chip'i varsa oyunu başlat
             const playersWithChips = this.players.filter(p => p.chips > 0);
-            if (this.players.length >= 2 && playersWithChips.length >= 2) { 
-                this.startGame(); 
-            } else { 
-                this.gameState = 'waiting'; 
+            if (this.players.length >= 2 && playersWithChips.length >= 2) {
+                this.startGame();
+            } else {
+                this.gameState = 'waiting';
             }
-            
+
             if (this.updateCallback) this.updateCallback();
-        }, 15000); 
+        }, 15000);
     }
 
     nextTurn() {
-        let attempts = 0;
-        do {
-            this.currentTurnIndex = (this.currentTurnIndex + 1) % this.players.length;
-            attempts++;
-        } while (this.players[this.currentTurnIndex].status !== 'playing' && attempts < this.players.length);
-        
-        this.startTurnTimer(); 
+        const next = this._nextIndexWhere(this.currentTurnIndex, p => p.status === 'playing');
+        if (next === -1) {
+            // Güvenlik: hamle yapabilecek kimse yoksa otomatik açılıma geç
+            this.startAutoRunout();
+            return;
+        }
+        this.currentTurnIndex = next;
+        this.startTurnTimer();
     }
 
     revealCards(userId, cardIndices) {
@@ -449,11 +610,17 @@ class PokerTable {
     }
 
     getPublicState() {
+        const cardsVisible = this.gameState === 'showdown' || (this.gameState === 'finished' && this.handRevealed);
         return {
             id: this.id, gameState: this.gameState, pot: this.pot, turnEndTime: this.turnEndTime,
             communityCards: this.communityCards,
             currentTurnIndex: this.gameState === 'waiting' || this.gameState === 'finished' ? -1 : this.currentTurnIndex,
             winners: this.gameState === 'finished' ? this.winners : [],
+            betToMatch: this.betToMatch,
+            minRaiseTo: this.betToMatch + this.lastRaiseSize,
+            dealerIndex: this.dealerIndex,
+            sbIndex: this.sbIndex,
+            bbIndex: this.bbIndex,
             settings: {
                 smallBlind: this.smallBlind,
                 bigBlind: this.bigBlind,
@@ -462,12 +629,15 @@ class PokerTable {
                 turnTimerDuration: this.turnTimerDuration
             },
             activeProposal: this.getProposalState(),
-            players: this.players.map(p => ({
+            players: this.players.map((p, i) => ({
                 id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
-                cards: (this.gameState === 'showdown' || this.gameState === 'finished') ? p.cards : [],
-                handDescription: (this.gameState === 'showdown' || this.gameState === 'finished') ? p.handDescription : '',
+                cards: cardsVisible ? p.cards : [],
+                handDescription: cardsVisible ? p.handDescription : '',
                 hasCards: p.cards.length > 0,
-                revealedCards: p.revealedCards.map(i => p.cards[i]).filter(Boolean),
+                isDealer: i === this.dealerIndex,
+                isSB: i === this.sbIndex,
+                isBB: i === this.bbIndex,
+                revealedCards: p.revealedCards.map(idx => p.cards[idx]).filter(Boolean),
                 revealedIndices: p.revealedCards || []
             }))
         };
