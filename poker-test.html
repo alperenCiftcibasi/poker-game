@@ -112,7 +112,9 @@
             if(!token) return alert('Token yok!');
             try { myUsername = JSON.parse(atob(token.split('.')[1])).username; } catch(e){}
 
-            socket = io('http://localhost:5000', { auth: { token } });
+            // Sabit localhost yerine sayfanın host'unu kullan (LAN'da da çalışır)
+            const SERVER_URL = `${window.location.protocol}//${window.location.hostname}:5000`;
+            socket = io(SERVER_URL, { auth: { token } });
             socket.on('connect', () => logla('🟢 Bağlandı!'));
             socket.on('error', (msg) => logla('❌ ' + msg));
             socket.on('handRankUpdate', (data) => {

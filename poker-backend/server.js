@@ -1,9 +1,20 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+
+// B15: JWT_SECRET olmadan sunucu güvenli çalışamaz — boot'ta durdur.
+if (!process.env.JWT_SECRET) {
+    console.error('❌ JWT_SECRET tanımlı değil. Sunucu başlatılamıyor. .env dosyanıza güçlü bir JWT_SECRET ekleyin.');
+    process.exit(1);
+}
+
+// CORS için izin verilen origin(ler). Varsayılan tüm originlere açık (LAN/dev için pratik).
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const { connectDB } = require('./config/db');
 const startCronJobs = require('./cron/chipReset');
@@ -15,17 +26,32 @@ const { activeTables, findSeatedTable } = require('./game/tableRegistry');
 const User = require('./models/User');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: CORS_ORIGIN }));
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/admin', adminRoutes);
 
+// 🌐 PRODUCTION BUILD SERVİSİ: frontend derlenmişse tek porttan servis et.
+// Express 5'te `app.get('*')` geçersiz olduğundan SPA fallback API route'larından
+// SONRA app.use() ile kaydedilir; /api istekleri bu fallback'e düşmez.
+const buildPath = path.join(__dirname, '../poker-frontend/build');
+if (fs.existsSync(path.join(buildPath, 'index.html'))) {
+    app.use(express.static(buildPath));
+    app.use((req, res, next) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api')) {
+            return res.sendFile(path.join(buildPath, 'index.html'));
+        }
+        next();
+    });
+    console.log('✅ Frontend build bulundu — tek porttan servis ediliyor.');
+}
+
 connectDB();
 startCronJobs();
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+const io = new Server(server, { cors: { origin: CORS_ORIGIN, methods: ["GET", "POST"] } });
 
 // DB invariant'ı: User.chips = kasa + masa. Her persist yolunda bankChips + chips yazılır.
 async function saveTableToDB(table) {
@@ -350,4 +376,5 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`🚀 Sunucu ${PORT} portunda hazır.`));
+// '0.0.0.0' — LAN'daki diğer cihazlar (telefon vb.) host'un IP'sinden bağlanabilsin.
+server.listen(PORT, '0.0.0.0', () => console.log(`🚀 Sunucu ${PORT} portunda (0.0.0.0) hazır.`));

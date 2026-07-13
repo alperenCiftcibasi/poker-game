@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
+import { SERVER_URL } from '../config';
 
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
-  const SOCKET_URL = 'http://localhost:5000';
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -17,7 +17,7 @@ function LoginPage({ onLogin }) {
 
   const handleRegister = async () => {
     try {
-      const res = await fetch(`${SOCKET_URL}/api/auth/register`, {
+      const res = await fetch(`${SERVER_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),

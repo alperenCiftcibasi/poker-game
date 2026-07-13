@@ -1,13 +1,24 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const verifyToken = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
+// B16: Kaba kuvvet / spam saldırılarına karşı auth uçlarında hız sınırı.
+// IP başına 15 dakikada en fazla 20 deneme.
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Çok fazla deneme yaptınız. Lütfen 15 dakika sonra tekrar deneyin.' }
+});
+
 // 🟢 KAYIT OL API'si
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
 
@@ -46,7 +57,7 @@ router.post('/register', async (req, res) => {
 });
 
 // 🔵 GİRİŞ YAP API'si
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
 

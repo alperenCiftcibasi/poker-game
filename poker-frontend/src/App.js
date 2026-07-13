@@ -9,11 +9,11 @@ import TablePage from './components/TablePage';
 import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
-
-const SOCKET_URL = 'http://localhost:5000';
+import { SERVER_URL } from './config';
 
 function App() {
   const [socket, setSocket] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // connecting | connected | disconnected
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('poker_token') || '');
   const [tableState, setTableState] = useState(null);
@@ -75,8 +75,29 @@ function App() {
     let newSocket = null;
 
     if (token) {
-      newSocket = io(SOCKET_URL, { auth: { token } });
+      newSocket = io(SERVER_URL, { auth: { token } });
       setSocket(newSocket);
+      setConnectionStatus('connecting');
+
+      // B17: Gerçek bağlantı durumu takibi + otomatik yeniden bağlanma sonrası masaya geri katılma
+      newSocket.on('connect', () => {
+        setConnectionStatus('connected');
+        // Masadaysak yeniden bağlanınca gizli kartlar/masa state'i geri gelsin
+        if (window.location.pathname.startsWith('/table/')) {
+          const tableId = window.location.pathname.split('/')[2];
+          newSocket.emit('viewTable', tableId);
+        }
+      });
+      newSocket.on('disconnect', () => setConnectionStatus('disconnected'));
+      newSocket.on('connect_error', (err) => {
+        setConnectionStatus('disconnected');
+        // Kimlik doğrulama hatasında token'ı temizle → login'e yönlendir (Efekt 1 halleder)
+        if (err && /token/i.test(err.message || '')) {
+          localStorage.removeItem('poker_token');
+          localStorage.removeItem('poker_user');
+          setToken('');
+        }
+      });
 
       newSocket.on('tableUpdated', (state) => {
         setTableState(state);
@@ -137,7 +158,7 @@ function App() {
 
   const handleLogin = async (username, password) => {
     try {
-      const res = await fetch(`${SOCKET_URL}/api/auth/login`, {
+      const res = await fetch(`${SERVER_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
@@ -176,7 +197,7 @@ function App() {
     setShowBuyInModal(true);
     setBuyInBank(null);
     try {
-      const res = await fetch(`${SOCKET_URL}/api/auth/me`, {
+      const res = await fetch(`${SERVER_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -229,7 +250,7 @@ function App() {
     setShowLeaderboard(true);
     setLeaderboardData(null); // Reset to loading state
     try {
-      const res = await fetch(`${SOCKET_URL}/api/auth/leaderboard`, {
+      const res = await fetch(`${SERVER_URL}/api/auth/leaderboard`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -268,6 +289,13 @@ function App() {
   
   return (
     <div className="app-container">
+      {token && connectionStatus !== 'connected' && (
+        <div className="connection-banner">
+          {connectionStatus === 'connecting'
+            ? '🔌 Sunucuya bağlanılıyor…'
+            : '⚠️ Bağlantı koptu, yeniden bağlanılıyor…'}
+        </div>
+      )}
       {token && (
         <>
           <button onClick={handleOpenLeaderboard} className="leaderboard-button" title="Lider Tablosu">
@@ -305,7 +333,7 @@ function App() {
 
       <Routes>
         <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
-        <Route path="/lobby" element={token ? <LobbyPage isConnected={!!socket} /> : <div>Yükleniyor...</div>} />
+        <Route path="/lobby" element={token ? <LobbyPage isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <div>Yükleniyor...</div>} />
         <Route path="/table/:tableId" element={
             token ? (
               <TablePage
@@ -326,7 +354,7 @@ function App() {
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>
-        <Route path="/" element={token ? <LobbyPage isConnected={!!socket}/> : <LoginPage onLogin={handleLogin} />} />
+        <Route path="/" element={token ? <LobbyPage isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <LoginPage onLogin={handleLogin} />} />
       </Routes>
     </div>
   );

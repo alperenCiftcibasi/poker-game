@@ -12,14 +12,18 @@ const connectDB = async () => {
     try {
         await sequelize.authenticate();
         console.log('✅ SQLite Veritabanı Bağlantısı Başarılı!');
-        
-        // Modelleri veritabanıyla senkronize et (Tabloları oluştur/güncelle)
-        await sequelize.sync({ alter: true }); // alter: true - Mevcut tabloları günceller
-        console.log('✅ Veritabanı tabloları güncellendi!');
-        
-        // Mevcut kullanıcılar için isApproved değerini güncelle (NULL olanları true yap)
-        await sequelize.query(`UPDATE Users SET isApproved = 1 WHERE isApproved IS NULL`);
-        console.log('✅ Mevcut kullanıcılar için isApproved güncellendi!');
+
+        // B14: Şema mutasyonu (alter) yalnızca development'ta. Production'da alter
+        // riskli olabileceğinden sadece eksik tabloları oluşturan düz sync kullanılır.
+        if (process.env.NODE_ENV === 'production') {
+            await sequelize.sync();
+        } else {
+            await sequelize.sync({ alter: true });
+        }
+        console.log('✅ Veritabanı tabloları hazır!');
+
+        // NOT: Eskiden burada her boot'ta `UPDATE Users SET isApproved = 1 ...`
+        // çalışıyordu; bu admin onay sistemini deldiği için kaldırıldı (B14).
     } catch (error) {
         console.error('❌ Veritabanı Bağlantı Hatası:', error.message);
         process.exit(1);

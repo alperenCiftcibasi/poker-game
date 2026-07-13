@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { SERVER_URL } from '../config';
 
 function AdminPanel({ show, onClose, token }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
-  const SOCKET_URL = 'http://localhost:5000';
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${SOCKET_URL}/api/admin/users`, {
+      const res = await fetch(`${SERVER_URL}/api/admin/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
@@ -46,7 +46,7 @@ function AdminPanel({ show, onClose, token }) {
     }
 
     try {
-      const res = await fetch(`${SOCKET_URL}/api/admin/update-chips`, {
+      const res = await fetch(`${SERVER_URL}/api/admin/update-chips`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -77,7 +77,7 @@ function AdminPanel({ show, onClose, token }) {
     }
 
     try {
-      const res = await fetch(`${SOCKET_URL}/api/admin/toggle-admin`, {
+      const res = await fetch(`${SERVER_URL}/api/admin/toggle-admin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -107,7 +107,7 @@ function AdminPanel({ show, onClose, token }) {
     }
 
     try {
-      const res = await fetch(`${SOCKET_URL}/api/admin/user/${userId}`, {
+      const res = await fetch(`${SERVER_URL}/api/admin/user/${userId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -134,7 +134,7 @@ function AdminPanel({ show, onClose, token }) {
     }
 
     try {
-      const res = await fetch(`${SOCKET_URL}/api/admin/approve-user`, {
+      const res = await fetch(`${SERVER_URL}/api/admin/approve-user`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
