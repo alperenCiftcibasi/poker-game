@@ -18,9 +18,12 @@ function App() {
   const [tableState, setTableState] = useState(null);
   const [myCards, setMyCards] = useState([]);
   const [myHandRank, setMyHandRank] = useState('');
+  const [revealMessages, setRevealMessages] = useState([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState(null); // null = henüz yüklenmedi
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [activeProposal, setActiveProposal] = useState(null);
+  const [voteResult, setVoteResult] = useState(null);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,9 +75,33 @@ function App() {
       newSocket = io(SOCKET_URL, { auth: { token } });
       setSocket(newSocket);
 
-      newSocket.on('tableUpdated', (state) => setTableState(state));
+      newSocket.on('tableUpdated', (state) => {
+        setTableState(state);
+        // Reconnect durumunda proposal senkronizasyonu
+        if (state.activeProposal) {
+          setActiveProposal(state.activeProposal);
+        } else {
+          setActiveProposal(null);
+        }
+      });
       newSocket.on('receiveCards', (data) => setMyCards(data.cards));
       newSocket.on('handRankUpdate', (data) => setMyHandRank(data.rank));
+      newSocket.on('cardRevealed', (data) => {
+        setRevealMessages(prev => [...prev, data]);
+        setTimeout(() => setRevealMessages(prev => prev.slice(1)), 5000);
+      });
+      newSocket.on('newProposal', (proposal) => {
+        setActiveProposal(proposal);
+      });
+      newSocket.on('voteResult', (result) => {
+        setActiveProposal(null);
+        setVoteResult(result);
+        setTimeout(() => setVoteResult(null), 5000);
+      });
+      newSocket.on('settingChanged', (data) => {
+        setVoteResult({ passed: true, setting: data.setting, newValue: data.newValue, immediate: true });
+        setTimeout(() => setVoteResult(null), 3000);
+      });
       newSocket.on('error', (message) => alert(`Sunucu Hatası: ${message}`));
 
       return () => {
@@ -96,6 +123,9 @@ function App() {
       setTableState(null);
       setMyCards([]);
       setMyHandRank('');
+      setRevealMessages([]);
+      setActiveProposal(null);
+      setVoteResult(null);
     }
   }, [socket, location.pathname]);
 
@@ -150,9 +180,25 @@ function App() {
   const handleAction = (action, amount) => {
     if (socket && tableState) socket.emit('playerAction', { tableId: tableState.id, action, amount });
   };
+
+  const handleRevealCards = (cardIndices) => {
+    if (socket && tableState) socket.emit('revealCards', { tableId: tableState.id, cardIndices });
+  };
   
   const handleStartGame = () => {
     if (socket && tableState) socket.emit('startGame', tableState.id);
+  };
+
+  const handleProposeSettingChange = (setting, value) => {
+    if (socket && tableState) {
+      socket.emit('proposeSettingChange', { tableId: tableState.id, setting, value });
+    }
+  };
+
+  const handleVote = (vote) => {
+    if (socket && tableState) {
+      socket.emit('voteOnProposal', { tableId: tableState.id, vote });
+    }
   };
 
   const handleOpenLeaderboard = async () => {
@@ -229,8 +275,8 @@ function App() {
         <Route path="/lobby" element={token ? <LobbyPage isConnected={!!socket} /> : <div>Yükleniyor...</div>} />
         <Route path="/table/:tableId" element={
             token ? (
-              <TablePage 
-                tableState={tableState} 
+              <TablePage
+                tableState={tableState}
                 myCards={myCards}
                 myHandRank={myHandRank}
                 myInfo={user}
@@ -238,6 +284,12 @@ function App() {
                 onStartGame={handleStartGame}
                 onSit={handleSitAtTable}
                 onLeave={handleLeaveTable}
+                onRevealCards={handleRevealCards}
+                revealMessages={revealMessages}
+                activeProposal={activeProposal}
+                voteResult={voteResult}
+                onProposeSettingChange={handleProposeSettingChange}
+                onVote={handleVote}
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>

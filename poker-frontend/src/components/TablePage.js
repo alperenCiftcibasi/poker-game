@@ -16,9 +16,23 @@ const MiniCard = ({ card }) => {
     return <span className={`card-mini ${suitColor}`}>{rank}{suitIcons[card.suit]}</span>;
 };
 
-function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartGame, onSit, onLeave }) {
+const VoteTimer = ({ expiresAt }) => {
+    const [secondsLeft, setSecondsLeft] = useState(0);
+    useEffect(() => {
+        const update = () => setSecondsLeft(Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)));
+        update();
+        const interval = setInterval(update, 1000);
+        return () => clearInterval(interval);
+    }, [expiresAt]);
+    return <span style={{ color: secondsLeft <= 5 ? '#e74c3c' : '#f1c40f', fontWeight: 'bold', fontSize: '20px' }}>{secondsLeft}s</span>;
+};
+
+function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartGame, onSit, onLeave, onRevealCards, revealMessages, activeProposal, voteResult, onProposeSettingChange, onVote }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const [raiseAmount, setRaiseAmount] = useState(50);
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [selectedSetting, setSelectedSetting] = useState('smallBlind');
+  const [proposedValue, setProposedValue] = useState('');
 
   // 🛠️ HATA ÇÖZÜMÜ: Tüm verileri GÜVENLİ bir şekilde alıyoruz (undefined ise[] yap)
   const turnEndTime = tableState?.turnEndTime || null;
@@ -71,6 +85,18 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
   const isPendingLeave = myPlayer?.pendingLeave;
   const isGameActive = !['waiting', 'finished', 'showdown'].includes(gameState);
 
+  // Ayar paneli için
+  const settings = tableState?.settings || {};
+  const canChangeSettings = amISitting && (gameState === 'waiting' || gameState === 'finished');
+  const hasVoted = activeProposal && activeProposal.votes && activeProposal.votes[myInfo?.id];
+  const settingLabels = {
+    smallBlind: 'Small Blind',
+    bigBlind: 'Big Blind',
+    minBuyIn: 'Min Buy-In',
+    maxBuyIn: 'Max Buy-In',
+    turnTimerDuration: 'Tur Süresi'
+  };
+
   const handleDecrease = () => setRaiseAmount(prev => Math.max(safeMinRaise, prev - 50));
   const handleIncrease = () => setRaiseAmount(prev => Math.min(maxRaise, prev + 50));
   const handleSliderChange = (e) => setRaiseAmount(Number(e.target.value));
@@ -86,6 +112,69 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
         )}
         {isPendingLeave && gameState !== 'finished' && (
           <div className="alert-banner">⏳ Ayrılma isteği alındı. Tur sonunda otomatik kalkacaksınız.</div>
+        )}
+        {revealMessages && revealMessages.length > 0 && revealMessages.map((msg, i) => (
+          <div key={i} className="reveal-banner">
+            👁 <strong>{msg.username}</strong> kartını açtı: {msg.revealedCards.map((c, j) => {
+              const suitIcons = { 'hearts': '♥️', 'diamonds': '♦️', 'clubs': '♣️', 'spades': '♠️' };
+              const r = c.rank === 'T' ? '10' : c.rank;
+              return <span key={j} style={{color: (c.suit === 'hearts' || c.suit === 'diamonds') ? '#e74c3c' : '#ecf0f1', fontWeight: 'bold'}}> {r}{suitIcons[c.suit]} </span>;
+            })}
+          </div>
+        ))}
+
+        {activeProposal && amISitting && (
+          <div className="vote-banner">
+            <div className="vote-info">
+              <strong>{activeProposal.proposerUsername}</strong> ayar degisikligi onerdi:
+              <br/>
+              <span className="vote-detail">
+                {settingLabels[activeProposal.setting] || activeProposal.setting}:{' '}
+                {activeProposal.setting === 'turnTimerDuration'
+                  ? `${activeProposal.currentValue / 1000}s`
+                  : activeProposal.currentValue}
+                {' → '}
+                {activeProposal.setting === 'turnTimerDuration'
+                  ? `${activeProposal.proposedValue / 1000}s`
+                  : activeProposal.proposedValue}
+              </span>
+            </div>
+            <div className="vote-countdown">
+              <VoteTimer expiresAt={activeProposal.expiresAt} />
+            </div>
+            <div className="vote-progress">
+              Oylar: {Object.values(activeProposal.votes || {}).filter(v => v === 'accept').length} Kabul /
+              {' '}{Object.values(activeProposal.votes || {}).filter(v => v === 'reject').length} Red /
+              {' '}{players.length} Toplam
+            </div>
+            {!hasVoted && activeProposal.proposerId !== myInfo?.id && (
+              <div className="vote-actions">
+                <button className="btn-vote btn-accept" onClick={() => onVote('accept')}>Kabul Et</button>
+                <button className="btn-vote btn-reject" onClick={() => onVote('reject')}>Reddet</button>
+              </div>
+            )}
+            {hasVoted && (
+              <div className="vote-status-text">
+                Oyunuz: {activeProposal.votes[myInfo?.id] === 'accept' ? 'Kabul' : 'Red'}
+              </div>
+            )}
+            {activeProposal.proposerId === myInfo?.id && (
+              <div className="vote-status-text">Sizin oneriniz (otomatik kabul)</div>
+            )}
+          </div>
+        )}
+
+        {voteResult && (
+          <div className={`vote-result-banner ${voteResult.passed ? 'vote-passed' : 'vote-rejected'}`}>
+            {voteResult.passed
+              ? `Oylama Kabul Edildi! ${settingLabels[voteResult.setting] || voteResult.setting}: ${
+                  voteResult.setting === 'turnTimerDuration' ? (voteResult.newValue / 1000) + 's' : voteResult.newValue
+                }`
+              : voteResult.cancelled
+                ? 'Oylama iptal edildi.'
+                : `Oylama Reddedildi. ${settingLabels[voteResult.setting] || voteResult.setting} degismedi.`
+            }
+          </div>
         )}
       </div>
 
@@ -116,7 +205,61 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
             {amISitting && gameState === 'waiting' && players.length >= 2 && (
               <button className="btn-action btn-start" onClick={onStartGame}>🎲 OYUNU BAŞLAT</button>
             )}
+            {canChangeSettings && !activeProposal && (
+              <button className="btn-action btn-settings" onClick={() => setShowSettingsPanel(prev => !prev)}>
+                {showSettingsPanel ? 'Paneli Kapat' : 'Masa Ayarlari'}
+              </button>
+            )}
           </div>
+
+          {showSettingsPanel && canChangeSettings && !activeProposal && (
+            <div className="settings-panel">
+              <h4>Masa Ayarlari</h4>
+              <div className="setting-rows">
+                {Object.entries(settingLabels).map(([key, label]) => (
+                  <div key={key} className="setting-row">
+                    <span className="setting-label">{label}:</span>
+                    <span className="setting-value">
+                      {key === 'turnTimerDuration'
+                        ? `${(settings[key] || 0) / 1000}s`
+                        : settings[key] ?? '-'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="setting-form">
+                <select
+                  className="setting-select"
+                  value={selectedSetting}
+                  onChange={(e) => setSelectedSetting(e.target.value)}
+                >
+                  {Object.entries(settingLabels).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  className="setting-input"
+                  placeholder={selectedSetting === 'turnTimerDuration' ? 'Saniye' : 'Yeni deger'}
+                  value={proposedValue}
+                  onChange={(e) => setProposedValue(e.target.value)}
+                />
+                <button
+                  className="btn-action btn-propose"
+                  disabled={!proposedValue}
+                  onClick={() => {
+                    let val = Number(proposedValue);
+                    if (selectedSetting === 'turnTimerDuration') val = val * 1000;
+                    onProposeSettingChange(selectedSetting, val);
+                    setProposedValue('');
+                    setShowSettingsPanel(false);
+                  }}
+                >
+                  Oneri Yap
+                </button>
+              </div>
+            </div>
+          )}
 
           {amISitting && (
             <div className="my-area">
@@ -133,6 +276,25 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
                         {myHandRank && (
                           <div style={{color: '#f1c40f', fontWeight: 'bold', fontSize: '16px', marginTop: '10px', padding: '8px', background: 'rgba(0,0,0,0.4)', borderRadius: '5px'}}>
                             🎯 {myHandRank}
+                          </div>
+                        )}
+                        {isGameActive && myPlayer && (
+                          <div className="reveal-buttons">
+                            {!myPlayer.revealedIndices?.includes(0) && safeMyCards[0] && (
+                              <button className="btn-reveal" onClick={() => onRevealCards([0])}>
+                                👁 1. Kartı Göster
+                              </button>
+                            )}
+                            {!myPlayer.revealedIndices?.includes(1) && safeMyCards[1] && (
+                              <button className="btn-reveal" onClick={() => onRevealCards([1])}>
+                                👁 2. Kartı Göster
+                              </button>
+                            )}
+                            {!myPlayer.revealedIndices?.includes(0) && !myPlayer.revealedIndices?.includes(1) && safeMyCards.length === 2 && (
+                              <button className="btn-reveal btn-reveal-both" onClick={() => onRevealCards([0, 1])}>
+                                👁 İkisini de Göster
+                              </button>
+                            )}
                           </div>
                         )}
                       </>
@@ -216,6 +378,13 @@ function TablePage({ tableState, myCards, myHandRank, myInfo, onAction, onStartG
                       <div className="p-cards">{(p.cards ||[]).map((c, i) => <MiniCard key={i} card={c} />)}</div>
                     </div>
                   )}
+                  {/* Oyun sırasında açılan kartlar */}
+                  {isGameActive && p.revealedCards && p.revealedCards.length > 0 && (
+                    <div className="p-reveal revealed-live">
+                      <div className="p-hand-name" style={{color: '#e74c3c'}}>👁 Açık Kart{p.revealedCards.length > 1 ? 'lar' : ''}</div>
+                      <div className="p-cards">{p.revealedCards.map((c, i) => <MiniCard key={i} card={c} />)}</div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -268,7 +437,51 @@ const styles = `
   .p-reveal { border-top: 1px solid rgba(255,255,255,0.1); margin-top: 8px; padding-top: 8px; text-align: center; }
   .p-hand-name { color: #f1c40f; font-weight: bold; font-size: 13px; margin-bottom: 5px; }
   .spectator-tag { margin-top: 20px; color: #bdc3c7; font-style: italic; }
+  .reveal-buttons { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+  .btn-reveal { background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; color: #e74c3c; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.2s; }
+  .btn-reveal:hover { background: #e74c3c; color: white; }
+  .btn-reveal-both { border-color: #e67e22; color: #e67e22; background: rgba(230, 126, 34, 0.2); }
+  .btn-reveal-both:hover { background: #e67e22; color: white; }
+  .reveal-banner { background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; padding: 12px 18px; border-radius: 10px; margin-bottom: 10px; font-size: 16px; animation: slideIn 0.3s ease-out; }
+  .revealed-live { border-top: 1px solid rgba(231, 76, 60, 0.4); margin-top: 8px; padding-top: 8px; text-align: center; animation: revealGlow 1s ease-out; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes revealGlow { 0% { box-shadow: 0 0 15px rgba(231, 76, 60, 0.6); } 100% { box-shadow: none; } }
   @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+
+  /* Ayar Paneli */
+  .btn-settings { background: #8e44ad; margin-top: 10px; width: 100%; }
+  .btn-settings:hover { background: #9b59b6; }
+  .settings-panel { background: rgba(0,0,0,0.6); border: 1px solid #8e44ad; border-radius: 10px; padding: 20px; margin-top: 15px; text-align: left; }
+  .settings-panel h4 { color: #f1c40f; margin: 0 0 12px 0; text-align: center; font-size: 16px; }
+  .setting-rows { margin-bottom: 15px; }
+  .setting-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.1); color: #ecf0f1; font-size: 14px; }
+  .setting-label { color: #bdc3c7; }
+  .setting-value { color: #f1c40f; font-weight: bold; }
+  .setting-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .setting-select { flex: 1; min-width: 120px; padding: 8px; border-radius: 5px; border: 1px solid #8e44ad; background: #2c3e50; color: #ecf0f1; font-size: 13px; }
+  .setting-input { width: 80px; padding: 8px; border-radius: 5px; border: 1px solid #8e44ad; background: #2c3e50; color: #ecf0f1; font-size: 13px; text-align: center; }
+  .btn-propose { background: #8e44ad; padding: 8px 16px; font-size: 14px; white-space: nowrap; }
+  .btn-propose:hover { background: #9b59b6; }
+  .btn-propose:disabled { background: #7f8c8d; cursor: not-allowed; }
+
+  /* Oylama Banner */
+  .vote-banner { background: linear-gradient(135deg, #2c3e50, #34495e); border: 2px solid #f1c40f; border-radius: 10px; padding: 15px; margin-bottom: 15px; text-align: center; animation: slideIn 0.3s ease-out; }
+  .vote-info { color: #ecf0f1; font-size: 14px; margin-bottom: 8px; }
+  .vote-detail { color: #f1c40f; font-weight: bold; font-size: 16px; }
+  .vote-countdown { margin: 8px 0; }
+  .vote-progress { color: #bdc3c7; font-size: 13px; margin-bottom: 10px; }
+  .vote-actions { display: flex; gap: 10px; justify-content: center; }
+  .btn-vote { padding: 10px 24px; font-weight: bold; font-size: 14px; cursor: pointer; border: none; border-radius: 6px; color: white; transition: 0.2s; }
+  .btn-accept { background: #27ae60; }
+  .btn-accept:hover { background: #2ecc71; }
+  .btn-reject { background: #c0392b; }
+  .btn-reject:hover { background: #e74c3c; }
+  .vote-status-text { color: #bdc3c7; font-style: italic; font-size: 13px; margin-top: 5px; }
+
+  /* Oylama Sonucu */
+  .vote-result-banner { padding: 12px; border-radius: 10px; margin-bottom: 15px; font-weight: bold; font-size: 16px; text-align: center; animation: slideIn 0.3s ease-out; }
+  .vote-passed { background: #27ae60; color: white; }
+  .vote-rejected { background: #c0392b; color: white; }
 `;
 const styleSheet = document.createElement("style"); styleSheet.innerText = styles; document.head.appendChild(styleSheet);
 

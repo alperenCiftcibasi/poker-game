@@ -51,8 +51,8 @@ async function getOrCreateTable(tableId) {
     if (!activeTables.has(tableId)) {
         const dbTable = await require('./models/Table').findByPk(tableId);
         if (!dbTable) return null;
-        
-        activeTables.set(tableId, new PokerTable(tableId, dbTable.maxPlayers, dbTable.smallBlind, dbTable.bigBlind, () => {
+
+        const pokerTable = new PokerTable(tableId, dbTable.maxPlayers, dbTable.smallBlind, dbTable.bigBlind, () => {
             const t = activeTables.get(tableId);
             if(t) {
                 // EĞER OYUN OTOMATİK BAŞLADIYSA KARTLARI DAĞIT
@@ -60,11 +60,16 @@ async function getOrCreateTable(tableId) {
                     t.players.forEach(p => {
                         io.to(p.socketId).emit('receiveCards', { cards: p.cards });
                     });
-                    console.log(`🚀 Masa ${tableId} OTOMATİK olarak yeni tura başladı!`);
+                    console.log(`Masa ${tableId} OTOMATİK olarak yeni tura başladı!`);
                 }
                 broadcastTableUpdate(io, t);
             }
-        }));
+        });
+
+        pokerTable.minBuyIn = dbTable.minBuyIn || 0;
+        pokerTable.maxBuyIn = dbTable.maxBuyIn || 0;
+
+        activeTables.set(tableId, pokerTable);
     }
     return activeTables.get(tableId);
 }
@@ -157,7 +162,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('playerAction', async ({ tableId, action, amount }) => { 
+    socket.on('playerAction', async ({ tableId, action, amount }) => {
         const table = activeTables.get(tableId);
         if (!table) return;
 
@@ -171,6 +176,98 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('revealCards', ({ tableId, cardIndices }) => {
+        const table = activeTables.get(tableId);
+        if (!table) return;
+
+        const result = table.revealCards(socket.user.id, cardIndices);
+        if (!result.success) {
+            socket.emit('error', result.message);
+        } else {
+            io.to(`table_${tableId}`).emit('cardRevealed', {
+                username: result.username,
+                revealedCards: result.revealedCards
+            });
+            broadcastTableUpdate(io, table);
+        }
+    });
+
+    // --- MASA AYARLARI OYLAMA ---
+
+    socket.on('proposeSettingChange', ({ tableId, setting, value }) => {
+        const table = activeTables.get(tableId);
+        if (!table) return socket.emit('error', 'Masa bulunamadı!');
+
+        const result = table.proposeSettingChange(socket.user.id, setting, value);
+
+        if (!result.success) {
+            return socket.emit('error', result.message);
+        }
+
+        // Tek oyuncu - direkt uygulama
+        if (result.immediate) {
+            io.to(`table_${tableId}`).emit('settingChanged', {
+                setting: result.setting,
+                newValue: result.newValue,
+                message: `${socket.user.username} ayarı değiştirdi.`
+            });
+            broadcastTableUpdate(io, table);
+            return;
+        }
+
+        // Oylama hemen sonuçlandı (2 kişilik masada otomatik kabul gibi)
+        if (result.resolved) {
+            io.to(`table_${tableId}`).emit('voteResult', {
+                passed: result.passed,
+                setting: result.setting,
+                oldValue: result.oldValue,
+                newValue: result.newValue
+            });
+            broadcastTableUpdate(io, table);
+            return;
+        }
+
+        // Normal oylama: 30sn expiry timer kur
+        table.activeProposal.timer = setTimeout(() => {
+            const expiryResult = table.expireProposal();
+            if (expiryResult) {
+                io.to(`table_${tableId}`).emit('voteResult', {
+                    passed: expiryResult.passed,
+                    expired: true,
+                    setting: expiryResult.setting,
+                    oldValue: expiryResult.oldValue,
+                    newValue: expiryResult.newValue
+                });
+                broadcastTableUpdate(io, table);
+            }
+        }, 30000);
+
+        io.to(`table_${tableId}`).emit('newProposal', table.getProposalState());
+        broadcastTableUpdate(io, table);
+    });
+
+    socket.on('voteOnProposal', ({ tableId, vote }) => {
+        const table = activeTables.get(tableId);
+        if (!table) return socket.emit('error', 'Masa bulunamadı!');
+
+        const result = table.voteOnProposal(socket.user.id, vote);
+
+        if (!result.success) {
+            return socket.emit('error', result.message);
+        }
+
+        if (result.resolved) {
+            io.to(`table_${tableId}`).emit('voteResult', {
+                passed: result.passed,
+                setting: result.setting,
+                oldValue: result.oldValue,
+                newValue: result.newValue
+            });
+        }
+
+        broadcastTableUpdate(io, table);
+    });
+
     socket.on('disconnect', async () => {
         if (socket.tableId) {
             const table = activeTables.get(socket.tableId);
@@ -179,17 +276,29 @@ io.on('connection', (socket) => {
                 if (leavingPlayer) {
                     // Chip'leri kaydet
                     await User.update({ chips: leavingPlayer.chips }, { where: { id: leavingPlayer.id } });
-                    
+
+                    const hadProposal = !!table.activeProposal;
+
                     // Oyun devam ediyorsa, oyuncuyu otomatik fold et
                     if (table.gameState !== 'waiting' && table.gameState !== 'finished') {
                         if (leavingPlayer.status === 'playing') {
-                            console.log(`⚠️ Oyuncu ${leavingPlayer.username} bağlantısı koptu, otomatik fold edildi.`);
+                            console.log(`Oyuncu ${leavingPlayer.username} bağlantısı koptu, otomatik fold edildi.`);
                             table.handleAction(leavingPlayer.id, 'fold');
                             broadcastTableUpdate(io, table);
                         }
                     } else {
                         // Oyun başlamamışsa veya bitmişse oyuncuyu masadan çıkar
                         table.removePlayer(socket.user.id);
+
+                        // Oylama iptal edildiyse bildir
+                        if (hadProposal && !table.activeProposal) {
+                            io.to(`table_${socket.tableId}`).emit('voteResult', {
+                                passed: false,
+                                cancelled: true,
+                                message: 'Oylama iptal edildi (oyuncu ayrıldı).'
+                            });
+                        }
+
                         broadcastTableUpdate(io, table);
                     }
                 }

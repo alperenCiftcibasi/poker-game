@@ -18,9 +18,17 @@ class PokerTable {
         this.communityCards = []; 
         this.pot = 0; 
         
-        this.gameState = 'waiting'; 
-        this.currentTurnIndex = -1; 
-        this.winners = []; 
+        this.gameState = 'waiting';
+        this.currentTurnIndex = -1;
+        this.winners = [];
+
+        // Değiştirilebilir ayarlar
+        this.turnTimerDuration = 30000;
+        this.minBuyIn = 0;
+        this.maxBuyIn = 0;
+
+        // Oylama state'i
+        this.activeProposal = null;
     }
 
     _convertCard(card) {
@@ -73,7 +81,7 @@ class PokerTable {
         this.players.push({
             id: user.id, username: user.username, socketId: user.socketId, chips: user.chips,
             cards:[], currentBet: 0, status: 'waiting', hasActed: false, handDescription: '', pendingLeave: false,
-            totalInvested: 0
+            totalInvested: 0, revealedCards: []
         });
 
         return { success: true, message: "Masaya başarıyla oturdunuz." };
@@ -92,6 +100,17 @@ class PokerTable {
 
     removePlayer(userId) {
         this.players = this.players.filter(p => p.id !== userId);
+
+        // Aktif oylama varsa kontrol et
+        if (this.activeProposal) {
+            this.activeProposal.votes.delete(userId);
+            if (this.activeProposal.proposerId === userId) {
+                this._clearProposal();
+            } else {
+                this._checkVoteResult();
+            }
+        }
+
         if (this.players.length < 2 && this.gameState !== 'waiting') {
             this.gameState = 'waiting';
             this.pot = 0;
@@ -110,7 +129,7 @@ class PokerTable {
         this.clearTurnTimer();
         if (this.gameState === 'waiting' || this.gameState === 'finished' || this.gameState === 'showdown') return;
 
-        this.turnEndTime = Date.now() + 30000; 
+        this.turnEndTime = Date.now() + this.turnTimerDuration; 
         const currentPlayer = this.players[this.currentTurnIndex];
         
         this.turnTimer = setTimeout(() => {
@@ -121,16 +140,21 @@ class PokerTable {
                 this.handleAction(currentPlayer.id, action);
                 if (this.updateCallback) this.updateCallback();
             }
-        }, 30000);
+        }, this.turnTimerDuration);
     }
 
     startGame() {
         if (this.players.length < 2) return { success: false, message: "Yetersiz oyuncu!" };
-        
+
         // Chip kontrolü: En az bir oyuncunun chip'i olmalı
         const playersWithChips = this.players.filter(p => p.chips > 0);
         if (playersWithChips.length < 2) {
             return { success: false, message: "Oyunu başlatmak için en az 2 oyuncunun chip'i olmalı!" };
+        }
+
+        // Aktif oylama varsa iptal et
+        if (this.activeProposal) {
+            this._clearProposal();
         }
         
         if (this.resetTimer) clearTimeout(this.resetTimer);
@@ -147,8 +171,9 @@ class PokerTable {
             player.status = 'playing';
             player.hasActed = false;
             player.handDescription = '';
-            player.pendingLeave = false; 
+            player.pendingLeave = false;
             player.totalInvested = 0;
+            player.revealedCards = [];
         });
 
         const sbPlayer = this.players[0];
@@ -370,7 +395,7 @@ class PokerTable {
             this.communityCards = [];
             this.winners =[];
             this.players.forEach(p => {
-                p.cards =[]; p.status = 'waiting'; p.currentBet = 0; p.handDescription = ''; p.pendingLeave = false; p.totalInvested = 0;
+                p.cards =[]; p.status = 'waiting'; p.currentBet = 0; p.handDescription = ''; p.pendingLeave = false; p.totalInvested = 0; p.revealedCards = [];
             });
 
             // En az 2 oyuncu ve en az 2 oyuncunun chip'i varsa oyunu başlat
@@ -395,18 +420,249 @@ class PokerTable {
         this.startTurnTimer(); 
     }
 
+    revealCards(userId, cardIndices) {
+        // Oyun aktif olmalı (pre-flop, flop, turn, river)
+        if (['waiting', 'finished', 'showdown'].includes(this.gameState)) {
+            return { success: false, message: 'Şu an kart gösteremezsiniz.' };
+        }
+
+        const player = this.players.find(p => p.id === userId);
+        if (!player) return { success: false, message: 'Oyuncu bulunamadı.' };
+        if (player.cards.length === 0) return { success: false, message: 'Elinizde kart yok.' };
+
+        // cardIndices: [0], [1], veya [0,1]
+        const validIndices = cardIndices.filter(i => i === 0 || i === 1);
+        if (validIndices.length === 0) return { success: false, message: 'Geçersiz kart seçimi.' };
+
+        // Daha önce açılmamış kartları bul
+        const newReveals = validIndices.filter(i => !player.revealedCards.includes(i) && i < player.cards.length);
+        if (newReveals.length === 0) return { success: false, message: 'Bu kartlar zaten açık.' };
+
+        player.revealedCards.push(...newReveals);
+
+        return {
+            success: true,
+            username: player.username,
+            revealedCards: newReveals.map(i => player.cards[i]),
+            revealedIndices: player.revealedCards
+        };
+    }
+
     getPublicState() {
         return {
-            id: this.id, gameState: this.gameState, pot: this.pot, turnEndTime: this.turnEndTime, 
+            id: this.id, gameState: this.gameState, pot: this.pot, turnEndTime: this.turnEndTime,
             communityCards: this.communityCards,
             currentTurnIndex: this.gameState === 'waiting' || this.gameState === 'finished' ? -1 : this.currentTurnIndex,
             winners: this.gameState === 'finished' ? this.winners : [],
+            settings: {
+                smallBlind: this.smallBlind,
+                bigBlind: this.bigBlind,
+                minBuyIn: this.minBuyIn,
+                maxBuyIn: this.maxBuyIn,
+                turnTimerDuration: this.turnTimerDuration
+            },
+            activeProposal: this.getProposalState(),
             players: this.players.map(p => ({
-                id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave, 
+                id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
                 cards: (this.gameState === 'showdown' || this.gameState === 'finished') ? p.cards : [],
                 handDescription: (this.gameState === 'showdown' || this.gameState === 'finished') ? p.handDescription : '',
-                hasCards: p.cards.length > 0 
+                hasCards: p.cards.length > 0,
+                revealedCards: p.revealedCards.map(i => p.cards[i]).filter(Boolean),
+                revealedIndices: p.revealedCards || []
             }))
+        };
+    }
+
+    // --- OYLAMA SİSTEMİ ---
+
+    proposeSettingChange(userId, setting, proposedValue) {
+        if (this.gameState !== 'waiting' && this.gameState !== 'finished') {
+            return { success: false, message: 'Oyun devam ederken ayar değiştirilemez.' };
+        }
+
+        const proposer = this.players.find(p => p.id === userId);
+        if (!proposer) {
+            return { success: false, message: 'Sadece masada oturan oyuncular öneri yapabilir.' };
+        }
+
+        if (this.activeProposal) {
+            return { success: false, message: 'Zaten aktif bir oylama var. Lütfen bekleyin.' };
+        }
+
+        const validSettings = ['smallBlind', 'bigBlind', 'minBuyIn', 'maxBuyIn', 'turnTimerDuration'];
+        if (!validSettings.includes(setting)) {
+            return { success: false, message: 'Geçersiz ayar adı.' };
+        }
+
+        const numValue = parseInt(proposedValue);
+        if (isNaN(numValue) || numValue <= 0) {
+            return { success: false, message: 'Geçerli bir pozitif sayı girin.' };
+        }
+
+        // Çapraz validasyon
+        if (setting === 'smallBlind' && numValue >= this.bigBlind) {
+            return { success: false, message: 'Small Blind, Big Blind\'dan küçük olmalı.' };
+        }
+        if (setting === 'bigBlind' && numValue <= this.smallBlind) {
+            return { success: false, message: 'Big Blind, Small Blind\'dan büyük olmalı.' };
+        }
+        if (setting === 'minBuyIn' && this.maxBuyIn > 0 && numValue > this.maxBuyIn) {
+            return { success: false, message: 'Min Buy-In, Max Buy-In\'dan büyük olamaz.' };
+        }
+        if (setting === 'maxBuyIn' && this.minBuyIn > 0 && numValue < this.minBuyIn) {
+            return { success: false, message: 'Max Buy-In, Min Buy-In\'dan küçük olamaz.' };
+        }
+        if (setting === 'turnTimerDuration' && (numValue < 10000 || numValue > 120000)) {
+            return { success: false, message: 'Süre 10-120 saniye arasında olmalı.' };
+        }
+
+        // Tek oyuncu varsa direkt uygula
+        if (this.players.length === 1) {
+            this[setting] = numValue;
+            return { success: true, immediate: true, setting, newValue: numValue };
+        }
+
+        // Oylama başlat
+        const votes = new Map();
+        votes.set(userId, 'accept');
+
+        this.activeProposal = {
+            proposerId: userId,
+            proposerUsername: proposer.username,
+            setting: setting,
+            currentValue: this[setting],
+            proposedValue: numValue,
+            votes: votes,
+            expiresAt: Date.now() + 30000,
+            timer: null
+        };
+
+        // Çoğunluk zaten sağlandı mı kontrol et
+        const result = this._checkVoteResult();
+        if (result) {
+            return { success: true, resolved: true, ...result };
+        }
+
+        return { success: true, proposal: this.getProposalState() };
+    }
+
+    voteOnProposal(userId, vote) {
+        if (!this.activeProposal) {
+            return { success: false, message: 'Aktif oylama bulunmuyor.' };
+        }
+
+        const player = this.players.find(p => p.id === userId);
+        if (!player) {
+            return { success: false, message: 'Sadece masada oturan oyuncular oy kullanabilir.' };
+        }
+
+        if (this.activeProposal.votes.has(userId)) {
+            return { success: false, message: 'Zaten oy kullandınız.' };
+        }
+
+        if (vote !== 'accept' && vote !== 'reject') {
+            return { success: false, message: 'Geçersiz oy.' };
+        }
+
+        this.activeProposal.votes.set(userId, vote);
+
+        const result = this._checkVoteResult();
+        if (result) {
+            return { success: true, resolved: true, ...result };
+        }
+
+        return { success: true, proposal: this.getProposalState() };
+    }
+
+    _checkVoteResult() {
+        if (!this.activeProposal) return null;
+
+        const totalPlayers = this.players.length;
+        const acceptCount = [...this.activeProposal.votes.values()].filter(v => v === 'accept').length;
+        const rejectCount = [...this.activeProposal.votes.values()].filter(v => v === 'reject').length;
+        const majority = Math.floor(totalPlayers / 2) + 1;
+
+        // Kabul edildi mi: yarısından fazlası kabul
+        if (acceptCount > totalPlayers / 2) {
+            const setting = this.activeProposal.setting;
+            const newValue = this.activeProposal.proposedValue;
+            const oldValue = this.activeProposal.currentValue;
+            this[setting] = newValue;
+            this._clearProposal();
+            return { passed: true, setting, oldValue, newValue };
+        }
+
+        // Reddedildi mi: yeterli red
+        if (rejectCount >= majority) {
+            const result = {
+                passed: false,
+                setting: this.activeProposal.setting,
+                oldValue: this.activeProposal.currentValue,
+                newValue: this.activeProposal.proposedValue
+            };
+            this._clearProposal();
+            return result;
+        }
+
+        // Herkes oy kullandı mı
+        if (this.activeProposal.votes.size === totalPlayers) {
+            const passed = acceptCount > rejectCount;
+            const result = {
+                passed,
+                setting: this.activeProposal.setting,
+                oldValue: this.activeProposal.currentValue,
+                newValue: this.activeProposal.proposedValue
+            };
+            if (passed) {
+                this[this.activeProposal.setting] = this.activeProposal.proposedValue;
+            }
+            this._clearProposal();
+            return result;
+        }
+
+        return null;
+    }
+
+    expireProposal() {
+        if (!this.activeProposal) return null;
+
+        const totalPlayers = this.players.length;
+        const acceptCount = [...this.activeProposal.votes.values()].filter(v => v === 'accept').length;
+        const passed = acceptCount > totalPlayers / 2;
+
+        const result = {
+            passed,
+            expired: true,
+            setting: this.activeProposal.setting,
+            oldValue: this.activeProposal.currentValue,
+            newValue: this.activeProposal.proposedValue
+        };
+
+        if (passed) {
+            this[this.activeProposal.setting] = this.activeProposal.proposedValue;
+        }
+
+        this._clearProposal();
+        return result;
+    }
+
+    _clearProposal() {
+        if (this.activeProposal && this.activeProposal.timer) {
+            clearTimeout(this.activeProposal.timer);
+        }
+        this.activeProposal = null;
+    }
+
+    getProposalState() {
+        if (!this.activeProposal) return null;
+        return {
+            proposerId: this.activeProposal.proposerId,
+            proposerUsername: this.activeProposal.proposerUsername,
+            setting: this.activeProposal.setting,
+            currentValue: this.activeProposal.currentValue,
+            proposedValue: this.activeProposal.proposedValue,
+            votes: Object.fromEntries(this.activeProposal.votes),
+            expiresAt: this.activeProposal.expiresAt
         };
     }
 }
