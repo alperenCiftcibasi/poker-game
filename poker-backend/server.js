@@ -23,6 +23,7 @@ const tableRoutes = require('./routes/table');
 const adminRoutes = require('./routes/admin');
 const PokerTable = require('./game/PokerTable');
 const { activeTables, findSeatedTable } = require('./game/tableRegistry');
+const { buildLobbyList } = require('./game/lobbyList');
 const User = require('./models/User');
 
 const app = express();
@@ -116,7 +117,20 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-    
+
+// 🏛️ LOBİ MASA LİSTESİ
+// Lobi bunu 5 sn'de bir çağırıyor. HTTP yerine socket'ten gitmesinin sebebi tünelin
+// (ngrok) aylık HTTP istek kotası — kurulu bir WebSocket içindeki mesajlar sayılmıyor.
+    socket.on('getLobbyTables', async (cb) => {
+        if (typeof cb !== 'function') return;
+        try {
+            cb({ tables: await buildLobbyList() });
+        } catch (error) {
+            console.error('Lobi Listeleme Hatası:', error);
+            cb({ error: 'Masalar yüklenemedi.' });
+        }
+    });
+
 // 👁️ MASAYI GÖRÜNTÜLEME (VE YENİDEN BAŞLANMA KONTROLÜ)
     socket.on('viewTable', async (tableId) => {
         // Faz 5: Farklı bir masaya geçildiyse önceki odadan ayrıl (bayat broadcast'leri engelle)

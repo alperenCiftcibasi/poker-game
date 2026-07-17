@@ -19,7 +19,7 @@ const EMPTY_FORM = {
   maxBuyIn: 2000
 };
 
-function LobbyPage({ isConnected, token, user }) {
+function LobbyPage({ socket, isConnected, token, user }) {
   const navigate = useNavigate();
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,29 +28,29 @@ function LobbyPage({ isConnected, token, user }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
 
-  const loadTables = useCallback(async () => {
-    try {
-      const res = await fetch(`${SERVER_URL}/api/tables/live`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('Masalar yüklenemedi');
-      const data = await res.json();
-      setTables(data);
-      setError('');
-    } catch (e) {
-      setError('Masalar yüklenemedi. Sunucuya ulaşılamıyor olabilir.');
-    } finally {
+  const loadTables = useCallback(() => {
+    if (!socket) return;
+    socket.emit('getLobbyTables', (res) => {
+      if (res && res.tables) {
+        setTables(res.tables);
+        setError('');
+      } else {
+        setError('Masalar yüklenemedi.');
+      }
       setLoading(false);
-    }
-  }, [token]);
+    });
+  }, [socket]);
 
-  // İlk yükleme + 5 sn'de bir otomatik yenileme
+  // İlk yükleme + 5 sn'de bir otomatik yenileme.
+  // Yenileme HTTP değil socket üzerinden: tünelin (ngrok) aylık 20.000 istek kotasını
+  // 5 sn'lik fetch yoklaması tek bir açık sekmeyle bir günde bitiriyordu.
+  // Socket kopukken hiç denemiyoruz — bağlantı durumu zaten üstteki göstergede belli.
   useEffect(() => {
-    if (!token) return;
+    if (!socket || !isConnected) return;
     loadTables();
     const id = setInterval(loadTables, 5000);
     return () => clearInterval(id);
-  }, [token, loadTables]);
+  }, [socket, isConnected, loadTables]);
 
   const goToTable = (id) => navigate(`/table/${id}`);
 
@@ -168,7 +168,8 @@ function LobbyPage({ isConnected, token, user }) {
       )}
 
       {loading ? (
-        <p className="lobby-info">Masalar yükleniyor…</p>
+        // Liste yalnızca socket bağlıyken geliyor; bağlantı yokken "yükleniyor" demek yanıltıcı olur.
+        <p className="lobby-info">{isConnected ? 'Masalar yükleniyor…' : 'Sunucuya bağlanılıyor…'}</p>
       ) : error ? (
         <p className="lobby-info error">{error}</p>
       ) : tables.length === 0 ? (
@@ -206,7 +207,7 @@ function LobbyPage({ isConnected, token, user }) {
 }
 
 const styles = `
-  .lobby-page { max-width: 1000px; margin: 0 auto; padding: 24px 16px 60px; }
+  .lobby-page { max-width: 1000px; margin: 0 auto; padding: 84px 16px 60px; }
   .lobby-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
   .lobby-header h1 { color: #ecf0f1; margin: 0; font-size: 28px; }
   .lobby-header-right { display: flex; align-items: center; gap: 12px; }

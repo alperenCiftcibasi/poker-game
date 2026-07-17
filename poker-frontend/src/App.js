@@ -93,7 +93,10 @@ function App() {
     let newSocket = null;
 
     if (token) {
-      newSocket = io(SERVER_URL, { auth: { token } });
+      // transports: sadece websocket. Varsayılan long-polling ile başlayıp yükseltiyor;
+      // polling'de kalırsa oyuncu başına ~25 sn'de bir HTTP isteği atar ve tünelin
+      // (ngrok) aylık istek kotasını eritir. WebSocket'te tüm oyun trafiği tek istek sayılır.
+      newSocket = io(SERVER_URL, { auth: { token }, transports: ['websocket'] });
       setSocket(newSocket);
       setConnectionStatus('connecting');
 
@@ -388,7 +391,7 @@ function App() {
 
       <Routes>
         <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
-        <Route path="/lobby" element={token ? <LobbyPage isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <div>Yükleniyor...</div>} />
+        <Route path="/lobby" element={token ? <LobbyPage socket={socket} isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <div>Yükleniyor...</div>} />
         <Route path="/table/:tableId" element={
             token ? (
               <TablePage
@@ -410,7 +413,7 @@ function App() {
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>
-        <Route path="/" element={token ? <LobbyPage isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <LoginPage onLogin={handleLogin} />} />
+        <Route path="/" element={token ? <LobbyPage socket={socket} isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <LoginPage onLogin={handleLogin} />} />
       </Routes>
     </div>
   );

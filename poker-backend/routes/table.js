@@ -2,7 +2,7 @@ const express = require('express');
 const Table = require('../models/Table');
 const verifyToken = require('../middleware/authMiddleware'); // Güvenlik görevlimiz
 const verifyAdmin = require('../middleware/adminMiddleware');
-const { activeTables } = require('../game/tableRegistry');
+const { buildLobbyList } = require('../game/lobbyList');
 
 const router = express.Router();
 
@@ -53,25 +53,10 @@ router.get('/list', verifyToken, async (req, res) => {
 });
 
 // 🟣 CANLI MASA DURUMU (Lobi kartları için: DB masaları + aktif oyun durumu)
+// Lobi normalde socket'teki 'getLobbyTables' üzerinden besleniyor; bu route yedek.
 router.get('/live', verifyToken, async (req, res) => {
     try {
-        const dbTables = await Table.findAll({ order: [['id', 'ASC']] });
-        const list = dbTables.map(t => {
-            // activeTables anahtarları URL'den geldiği için string olabilir; her iki tipi de dene.
-            const live = activeTables.get(t.id) || activeTables.get(String(t.id));
-            return {
-                id: t.id,
-                name: t.name,
-                smallBlind: t.smallBlind,
-                bigBlind: t.bigBlind,
-                minBuyIn: t.minBuyIn,
-                maxBuyIn: t.maxBuyIn,
-                maxPlayers: t.maxPlayers,
-                playerCount: live ? live.players.length : 0,
-                gameState: live ? live.gameState : 'waiting'
-            };
-        });
-        res.status(200).json(list);
+        res.status(200).json(await buildLobbyList());
     } catch (error) {
         console.error('Canlı Masa Listeleme Hatası:', error);
         res.status(500).json({ message: 'Sunucu hatası oluştu.' });
