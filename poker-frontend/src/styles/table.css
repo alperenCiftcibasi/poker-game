@@ -190,7 +190,7 @@
 /* ============ Bahis çipleri ============ */
 .pk-bet-chips {
   position: absolute; transform: translate(-50%, -50%);
-  display: flex; align-items: center; gap: 4px; z-index: 2;
+  display: flex; align-items: center; gap: 4px; z-index: 4;
   background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 12px;
 }
 .pk-bet-chip-icon { font-size: 13px; }
