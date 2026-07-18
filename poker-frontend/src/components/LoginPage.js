@@ -64,6 +64,7 @@ function LoginPage({ onLogin }) {
           {isRegister ? 'Giriş Yap' : 'Kayıt Ol'}
         </button>
       </form>
+      <p className="login-credit">merovingian tarafından geliştirildi</p>
     </div>
   );
 }

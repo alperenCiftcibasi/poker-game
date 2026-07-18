@@ -20,6 +20,12 @@
   font-size: 16px;
   cursor: pointer;
 }
+.login-credit {
+  margin-top: 24px;
+  font-size: 13px;
+  color: #95a5a6;
+  letter-spacing: 0.5px;
+}
 
 /* Poker Masası */
 .table-page {
