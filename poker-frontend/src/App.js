@@ -9,6 +9,7 @@ import TablePage from './components/TablePage';
 import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
+import AccountModal from './components/AccountModal';
 import { SERVER_URL } from './config';
 import { playSound, isMuted, toggleMute } from './utils/sounds';
 
@@ -35,6 +36,7 @@ function App() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState(null); // null = henüz yüklenmedi
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
   const [activeProposal, setActiveProposal] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
   const [showBuyInModal, setShowBuyInModal] = useState(false);
@@ -316,6 +318,23 @@ function App() {
     navigate('/login');
   };
 
+  // Hesap güncellendi (kullanıcı adı değişikliği yeni token döndürür).
+  // Yeni token'ı kaydetmek socket'i yeni kimlikle yeniden bağlar (Efekt 2),
+  // ve /me efekti (Efekt 1.5) taze kullanıcı bilgisini çeker.
+  const handleAccountUpdated = ({ token: newToken, user: newUser }) => {
+    if (newToken) {
+      localStorage.setItem('poker_token', newToken);
+      setToken(newToken);
+    }
+    if (newUser) {
+      setUser((prev) => {
+        const merged = { ...(prev || {}), ...newUser };
+        localStorage.setItem('poker_user', JSON.stringify(merged));
+        return merged;
+      });
+    }
+  };
+
   // Masaya oturmadan önce buy-in modalını aç ve taze bakiyeyi getir
   const handleOpenBuyIn = async () => {
     if (!socket || !tableState) return;
@@ -454,6 +473,13 @@ function App() {
           >
             {muted ? '🔇' : '🔊'}
           </button>
+          <button
+            onClick={() => setShowAccount(true)}
+            className="account-button"
+            title="Hesap Ayarları"
+          >
+            👤
+          </button>
           {user?.isAdmin && (
             <button onClick={handleOpenAdminPanel} className="admin-button" title="Admin Paneli">
               ⚙️
@@ -482,6 +508,14 @@ function App() {
         bank={buyInBank}
         settings={tableState?.settings}
         tableName={tableState ? `Masa #${tableState.id}` : ''}
+      />
+
+      <AccountModal
+        show={showAccount}
+        onClose={() => setShowAccount(false)}
+        token={token}
+        user={user}
+        onAccountUpdated={handleAccountUpdated}
       />
 
       <Routes>

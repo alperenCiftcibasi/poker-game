@@ -110,6 +110,109 @@ router.get('/me', verifyToken, async (req, res) => {
     }
 });
 
+// ✏️ KULLANICI ADI DEĞİŞTİR API'si (şifre doğrulaması gerekir)
+router.post('/change-username', authLimiter, verifyToken, async (req, res) => {
+    try {
+        const { currentPassword, newUsername } = req.body;
+
+        // 1. Temel doğrulama
+        if (!currentPassword || !newUsername) {
+            return res.status(400).json({ message: 'Mevcut şifre ve yeni kullanıcı adı gereklidir.' });
+        }
+        const trimmed = String(newUsername).trim();
+        if (trimmed.length < 3 || trimmed.length > 20) {
+            return res.status(400).json({ message: 'Kullanıcı adı 3-20 karakter olmalıdır.' });
+        }
+
+        // 2. Kullanıcıyı bul
+        const user = await User.findByPk(req.user.id);
+        if (!user) {
+            return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+
+        // 3. Şifre doğrulaması
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Şifreniz hatalı.' });
+        }
+
+        // 4. Aynı ad mı?
+        if (trimmed === user.username) {
+            return res.status(400).json({ message: 'Yeni kullanıcı adı mevcut adınızla aynı.' });
+        }
+
+        // 5. Kullanıcı adı başkası tarafından alınmış mı?
+        const existing = await User.findOne({ where: { username: trimmed } });
+        if (existing && existing.id !== user.id) {
+            return res.status(400).json({ message: 'Bu kullanıcı adı zaten alınmış.' });
+        }
+
+        // 6. Kaydet
+        user.username = trimmed;
+        await user.save();
+
+        // 7. Kullanıcı adı JWT içinde tutulduğu için taze token üret (eski token eski adı taşır).
+        //    Frontend bu token'ı kaydedip socket'i yeni adla yeniden bağlar.
+        const newToken = jwt.sign(
+            { id: user.id, username: user.username },
+            process.env.JWT_SECRET,
+            { expiresIn: '1d' }
+        );
+
+        res.status(200).json({
+            message: 'Kullanıcı adınız başarıyla değiştirildi.',
+            token: newToken,
+            user: { id: user.id, username: user.username, chips: user.chips, isAdmin: user.isAdmin }
+        });
+    } catch (error) {
+        console.error('Kullanıcı Adı Değiştirme Hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
+// 🔑 ŞİFRE DEĞİŞTİR API'si (giriş yapmış kullanıcı kendi şifresini değiştirir)
+router.post('/change-password', authLimiter, verifyToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        // 1. Temel doğrulama
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ message: 'Mevcut ve yeni şifre gereklidir.' });
+        }
+        if (typeof newPassword !== 'string' || newPassword.length < 4) {
+            return res.status(400).json({ message: 'Yeni şifre en az 4 karakter olmalıdır.' });
+        }
+
+        // 2. Kullanıcıyı bul (token'dan gelen id ile)
+        const user = await User.findByPk(req.user.id);
+        if (!user) {
+            return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+
+        // 3. Mevcut şifre doğru mu?
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ message: 'Mevcut şifreniz hatalı.' });
+        }
+
+        // 4. Yeni şifre eskisiyle aynı olmasın
+        const isSame = await bcrypt.compare(newPassword, user.password);
+        if (isSame) {
+            return res.status(400).json({ message: 'Yeni şifre mevcut şifreyle aynı olamaz.' });
+        }
+
+        // 5. Yeni şifreyi kriptola ve kaydet
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        res.status(200).json({ message: 'Şifreniz başarıyla değiştirildi.' });
+    } catch (error) {
+        console.error('Şifre Değiştirme Hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
 // 🏆 LEADERBOARD (En Zengin Oyuncular)
 router.get('/leaderboard', verifyToken, async (req, res) => {
     try {
