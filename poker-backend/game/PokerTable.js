@@ -1,6 +1,8 @@
 const Deck = require('./Deck');
 const Hand = require('pokersolver').Hand;
 
+const SHOW_MUCK_DURATION = 12000; // el sonu "göster/gösterme" penceresi (herkese aynı anda)
+
 class PokerTable {
     constructor(id, maxPlayers, smallBlind, bigBlind, updateCallback, options = {}) {
         this.id = id;
@@ -34,7 +36,10 @@ class PokerTable {
         this.lastRaiseSize = bigBlind; // son tam raise artışı (min-raise hesabı için)
         this.handNumber = 0;       // bayat timer'ları geçersiz kılmak için
         this.runoutTimer = null;
-        this.handRevealed = false; // sadece showdown'la biten ellerde kartlar açılır
+
+        // El sonu "göster/gösterme" penceresi (herkese aynı anda)
+        this.showMuckTimer = null;
+        this.showMuckDeciders = []; // henüz karar vermemiş, iki kartı açık olmayan oyuncu id'leri
 
         // Değiştirilebilir ayarlar
         this.turnTimerDuration = 30000;
@@ -43,6 +48,26 @@ class PokerTable {
 
         // Oylama state'i
         this.activeProposal = null;
+
+        // Masaya özel yazılı sohbet (son 50 mesaj bellekte tutulur; masa yaşadıkça kalır)
+        this.chatHistory = [];
+    }
+
+    // Masaya sohbet mesajı ekler. Geçersizse null döner, geçerliyse yayınlanacak kaydı döner.
+    addChatMessage(user, rawText) {
+        if (typeof rawText !== 'string') return null;
+        const text = rawText.trim().slice(0, 300);
+        if (!text) return null;
+        const entry = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            userId: user.id,
+            username: user.username,
+            text,
+            ts: Date.now()
+        };
+        this.chatHistory.push(entry);
+        if (this.chatHistory.length > 50) this.chatHistory.shift();
+        return entry;
     }
 
     _convertCard(card) {
@@ -160,11 +185,15 @@ class PokerTable {
             }
         }
 
+        // Göster/gösterme penceresinden çıkar; karar bekleyen kalmazsa pencereyi kapat
+        this._removeDecider(userId);
+
         if (this.players.length < 2 && this.gameState !== 'waiting') {
             this.gameState = 'waiting';
             this.pot = 0;
             this.currentTurnIndex = -1;
             this.clearTurnTimer();
+            this._clearShowMuck();
             if (this.resetTimer) clearTimeout(this.resetTimer);
             if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
         }
@@ -213,6 +242,7 @@ class PokerTable {
         if (this.resetTimer) clearTimeout(this.resetTimer);
         if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
         this.clearTurnTimer();
+        this._clearShowMuck();
 
         this.handNumber++;
         this.gameState = 'pre-flop';
@@ -220,7 +250,6 @@ class PokerTable {
         this.communityCards = [];
         this.pot = 0;
         this.winners = [];
-        this.handRevealed = false;
         this.betToMatch = 0;
         this.lastRaiseSize = this.bigBlind;
 
@@ -319,9 +348,9 @@ class PokerTable {
 
         switch (action) {
             case 'fold':
+                // Kartlar silinmez: el sonunda "göster/gösterme" sırası için saklanır.
+                // getPublicState fold edilen kartları zaten dışarı sızdırmaz.
                 player.status = 'folded';
-                player.cards = [];
-                player.revealedCards = [];
                 break;
 
             case 'check':
@@ -544,8 +573,18 @@ class PokerTable {
         });
         this.pot = 0;
 
-        this.handRevealed = true; // showdown: kartlar herkese açılır
-        this.endGame([...new Set(winnersData)], "Showdown");
+        // Gerçek showdown'da (2+ contender) potu alanların kartları otomatik açılır;
+        // diğerleri el sonu "göster/gösterme" sırasında kendileri karar verir.
+        const winnerSet = new Set(winnersData);
+        if (contenders.length > 1) {
+            contenders.forEach(p => {
+                if (!winnerSet.has(p.username)) return;
+                [0, 1].forEach(i => {
+                    if (!p.revealedCards.includes(i) && i < p.cards.length) p.revealedCards.push(i);
+                });
+            });
+        }
+        this.endGame([...winnerSet], "Showdown");
     }
 
     endGame(winnerNames, reason) {
@@ -553,10 +592,24 @@ class PokerTable {
         this.winners = winnerNames;
         this.currentTurnIndex = -1;
         this.clearTurnTimer();
+        this._clearShowMuck();
 
         if (this.resetTimer) clearTimeout(this.resetTimer);
         if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
 
+        // Herkese aynı anda "göster/gösterme" penceresi; pencere kapanınca reset kurulur.
+        this._startShowMuckWindow();
+    }
+
+    _clearShowMuck() {
+        if (this.showMuckTimer) clearTimeout(this.showMuckTimer);
+        this.showMuckTimer = null;
+        this.showMuckDeciders = [];
+    }
+
+    // El bitiminden 15 sn sonra masayı sıfırla / yeni eli başlat
+    _armResetTimer() {
+        if (this.resetTimer) clearTimeout(this.resetTimer);
         this.resetTimer = setTimeout(() => {
             // Chip'i bitenleri, ayrılmak isteyenleri ve bağlantısı kopanları masadan çıkar
             this.players = this.players.filter(p => !p.pendingLeave && p.chips > 0 && !p.disconnected);
@@ -567,7 +620,6 @@ class PokerTable {
             this.sbIndex = -1;
             this.bbIndex = -1;
             this.betToMatch = 0;
-            this.handRevealed = false;
             this.players.forEach(p => {
                 p.cards =[]; p.status = 'waiting'; p.currentBet = 0; p.handDescription = ''; p.pendingLeave = false; p.totalInvested = 0; p.revealedCards = [];
             });
@@ -582,6 +634,74 @@ class PokerTable {
 
             if (this.updateCallback) this.updateCallback();
         }, 15000);
+    }
+
+    // Tek pencere: kartı olan ve iki kartı zaten açık olmayan herkese (fold edenler
+    // dahil, showdown'da otomatik açılan kazananlar hariç) aynı anda karar hakkı ver.
+    _startShowMuckWindow() {
+        this.showMuckDeciders = this.players
+            .filter(p => p.cards.length > 0 &&
+                !p.disconnected &&
+                !(p.revealedCards.includes(0) && p.revealedCards.includes(1)))
+            .map(p => p.id);
+
+        if (this.showMuckDeciders.length === 0) {
+            this.turnEndTime = null;
+            this._armResetTimer();
+            return;
+        }
+
+        this.turnEndTime = Date.now() + SHOW_MUCK_DURATION;
+
+        const handAtSchedule = this.handNumber;
+        this.showMuckTimer = setTimeout(() => {
+            this.showMuckTimer = null;
+            if (this.handNumber !== handAtSchedule) return;
+            if (this.gameState !== 'finished') return;
+            // Süre doldu: karar vermeyenler göstermemiş sayılır, pencere kapanır
+            this.showMuckDeciders = [];
+            this.turnEndTime = null;
+            this._armResetTimer();
+            if (this.updateCallback) this.updateCallback();
+        }, SHOW_MUCK_DURATION);
+    }
+
+    // Bir oyuncu karar verince / masadan ayrılınca listeden düşer; kimse kalmazsa
+    // pencere erken kapanır ve reset kurulur.
+    _removeDecider(userId) {
+        if (!this.showMuckDeciders.includes(userId)) return;
+        this.showMuckDeciders = this.showMuckDeciders.filter(id => id !== userId);
+        if (this.showMuckDeciders.length === 0) {
+            if (this.showMuckTimer) clearTimeout(this.showMuckTimer);
+            this.showMuckTimer = null;
+            this.turnEndTime = null;
+            this._armResetTimer();
+        }
+    }
+
+    showMuckDecision(userId, show) {
+        if (this.gameState !== 'finished' || !this.showMuckDeciders.includes(userId)) {
+            return { success: false, message: 'Şu an kart gösterme kararı veremezsiniz.' };
+        }
+
+        const player = this.players.find(p => p.id === userId);
+        if (!player) return { success: false, message: 'Oyuncu bulunamadı.' };
+
+        if (show) {
+            [0, 1].forEach(i => {
+                if (!player.revealedCards.includes(i) && i < player.cards.length) {
+                    player.revealedCards.push(i);
+                }
+            });
+        }
+
+        this._removeDecider(userId);
+        return {
+            success: true,
+            username: player.username,
+            show: !!show,
+            revealedCards: show ? player.cards.slice(0, 2) : []
+        };
     }
 
     nextTurn() {
@@ -604,6 +724,11 @@ class PokerTable {
         const player = this.players.find(p => p.id === userId);
         if (!player) return { success: false, message: 'Oyuncu bulunamadı.' };
         if (player.cards.length === 0) return { success: false, message: 'Elinizde kart yok.' };
+        // Fold eden el sırasında kart açamaz (kartları artık el sonuna dek saklanıyor;
+        // gösterme şansı el bitince "göster/gösterme" sırasında gelir).
+        if (player.status === 'folded') {
+            return { success: false, message: 'Fold ettiniz; kart gösterme şansı el bitince gelecek.' };
+        }
 
         // cardIndices: [0], [1], veya [0,1]
         const validIndices = cardIndices.filter(i => i === 0 || i === 1);
@@ -624,13 +749,13 @@ class PokerTable {
     }
 
     getPublicState() {
-        const cardsVisible = this.gameState === 'showdown' || (this.gameState === 'finished' && this.handRevealed);
         return {
             id: this.id, gameState: this.gameState, pot: this.pot, turnEndTime: this.turnEndTime,
             maxPlayers: this.maxPlayers,
             communityCards: this.communityCards,
             currentTurnIndex: this.gameState === 'waiting' || this.gameState === 'finished' ? -1 : this.currentTurnIndex,
             winners: this.gameState === 'finished' ? this.winners : [],
+            showMuckDeciders: this.showMuckDeciders,
             betToMatch: this.betToMatch,
             minRaiseTo: this.betToMatch + this.lastRaiseSize,
             dealerIndex: this.dealerIndex,
@@ -647,9 +772,10 @@ class PokerTable {
             players: this.players.map((p, i) => ({
                 id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
                 disconnected: !!p.disconnected,
-                cards: cardsVisible ? p.cards : [],
-                handDescription: cardsVisible ? p.handDescription : '',
-                hasCards: p.cards.length > 0,
+                // Kartlar public state'te asla açık gitmez; gösterim revealedCards kanalından.
+                cards: [],
+                handDescription: (this.gameState === 'finished' && p.revealedCards.length >= 2) ? p.handDescription : '',
+                hasCards: p.cards.length > 0 && p.status !== 'folded',
                 isDealer: i === this.dealerIndex,
                 isSB: i === this.sbIndex,
                 isBB: i === this.bbIndex,

@@ -17,16 +17,24 @@
 .pk-table-page {
   max-width: 1250px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 8px 16px;
   display: grid;
-  grid-template-columns: 1fr 280px;
-  grid-template-areas: "stage log" "bottom log";
-  gap: 16px;
+  grid-template-columns: 1fr;
+  grid-template-areas: "stage" "bottom";
+  gap: 10px;
   align-items: start;
+}
+.pk-table-page.side-open {
+  grid-template-columns: 1fr 300px;
+  grid-template-areas: "stage side" "bottom side";
 }
 .pk-stage-wrap { grid-area: stage; }
 .pk-bottom { grid-area: bottom; }
-.pk-log-wrap { grid-area: log; }
+.pk-side {
+  grid-area: side;
+  display: flex; flex-direction: column; gap: 12px;
+  min-height: 0; max-height: calc(100vh - 32px); position: sticky; top: 16px;
+}
 
 .pk-table-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -37,7 +45,12 @@
 /* ============ Oval masa (stage + felt) ============ */
 .pk-table-stage {
   position: relative;
-  width: 100%;
+  /* Ekrana sığdır: masa genişliği hem konteynıra (%100) hem de viewport
+     yüksekliğine göre sınırlı. Yükseklik = genişlik·10/16 olduğundan, alt bar
+     + başlık için ~320px pay ayırınca masa + aksiyon çubuğu dikeyde kaydırmasız
+     sığar. aspect-ratio korunur (masa flex'e çevrilmez).
+     Not: alt bar taşarsa bu 320px payını artırın. */
+  width: min(100%, calc((100dvh - 320px) * 16 / 10));
   aspect-ratio: 16 / 10;
   margin: 0 auto;
 }
@@ -167,10 +180,10 @@
 .pk-bet-amount { color: var(--pk-gold); font-weight: bold; font-size: 13px; }
 
 /* ============ Alt bar: kendi elin + kontroller + ActionBar ============ */
-.pk-bottom { display: flex; flex-direction: column; gap: 12px; }
+.pk-bottom { display: flex; flex-direction: column; gap: 8px; }
 .pk-myhand {
   background: #1f2b38; border: 1px solid var(--pk-seat-border); border-radius: 12px;
-  padding: 12px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 8px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
 .pk-myhand-label { color: var(--pk-muted); font-size: 12px; letter-spacing: 1px; }
 .pk-myhand-cards { display: flex; gap: 6px; }
@@ -186,7 +199,7 @@
 
 .pk-controls { display: flex; gap: 10px; flex-wrap: wrap; }
 .pk-ctrl-btn {
-  padding: 11px 20px; font-size: 15px; font-weight: bold; cursor: pointer;
+  padding: 9px 18px; font-size: 15px; font-weight: bold; cursor: pointer;
   border: none; border-radius: 8px; color: #fff; transition: 0.2s;
 }
 .pk-ctrl-btn.sit { background: #27ae60; }
@@ -194,15 +207,20 @@
 .pk-ctrl-btn.pending { background: #d35400; box-shadow: 0 0 10px #e67e22; }
 .pk-ctrl-btn.start { background: #2980b9; }
 .pk-ctrl-btn.settings { background: #8e44ad; }
+.pk-ctrl-btn.lobby { background: #34495e; }
+.pk-ctrl-btn.log { background: #16613f; }
+.pk-ctrl-btn.log.active { background: #1f8a5a; box-shadow: 0 0 10px rgba(46,204,113,0.4); }
+.pk-ctrl-btn.chat { background: #1f5673; }
+.pk-ctrl-btn.chat.active { background: #2980b9; box-shadow: 0 0 10px rgba(52,152,219,0.4); }
 .pk-ctrl-btn:disabled { background: #7f8c8d; cursor: not-allowed; opacity: 0.7; }
 .pk-ctrl-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .pk-spectator { color: var(--pk-muted); font-style: italic; padding: 8px 4px; }
 
 /* ============ ActionBar ============ */
 .pk-actionbar {
-  display: flex; gap: 14px; align-items: stretch;
+  display: flex; gap: 12px; align-items: stretch;
   background: linear-gradient(180deg, #223140, #1a2733);
-  border: 1px solid var(--pk-seat-border); border-radius: 14px; padding: 14px;
+  border: 1px solid var(--pk-seat-border); border-radius: 14px; padding: 10px 12px;
 }
 .pk-timer-ring {
   flex: 0 0 auto; width: 56px; height: 56px; border-radius: 50%;
@@ -213,10 +231,10 @@
 .pk-timer-ring::before { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: #1a2733; }
 .pk-timer-num { position: relative; z-index: 1; color: var(--pk-text); font-weight: bold; font-size: 18px; }
 
-.pk-actionbar-main { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.pk-actionbar-main { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .pk-action-primary { display: flex; gap: 10px; }
 .pk-btn {
-  flex: 1; padding: 14px 10px; font-weight: 800; font-size: 15px; cursor: pointer;
+  flex: 1; padding: 11px 10px; font-weight: 800; font-size: 15px; cursor: pointer;
   border: none; border-radius: 10px; color: #fff; transition: 0.15s; letter-spacing: 0.5px;
 }
 .pk-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
@@ -259,11 +277,19 @@
 
 /* ============ Oyun logu ============ */
 .pk-log {
-  grid-area: log; background: #1f2b38; border: 1px solid var(--pk-seat-border); border-radius: 12px;
-  display: flex; flex-direction: column; max-height: 70vh;
+  background: #1f2b38; border: 1px solid var(--pk-seat-border); border-radius: 12px;
+  display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; overflow: hidden;
 }
-.pk-log-title { padding: 12px 14px; border-bottom: 1px solid var(--pk-seat-border); color: var(--pk-text); font-weight: bold; }
-.pk-log-feed { overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 5px; }
+.pk-log-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--pk-seat-border); color: var(--pk-text); font-weight: bold;
+}
+.pk-log-close {
+  background: transparent; border: none; color: var(--pk-muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+}
+.pk-log-close:hover { background: rgba(255,255,255,0.08); color: var(--pk-text); }
+.pk-log-feed { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 5px; }
 .pk-log-empty { color: var(--pk-muted); font-style: italic; padding: 12px 0; text-align: center; }
 .pk-log-row { font-size: 13px; color: #cdd8e0; padding: 4px 8px; border-radius: 5px; background: rgba(255,255,255,0.03); }
 .pk-log-row.action { border-left: 3px solid #3498db; }
@@ -271,11 +297,61 @@
 .pk-log-row.vote { border-left: 3px solid #8e44ad; }
 .pk-log-row.winner { border-left: 3px solid var(--pk-gold); color: var(--pk-gold); font-weight: bold; }
 
+/* ============ Masa sohbeti ============ */
+.pk-chat {
+  background: #1f2b38; border: 1px solid var(--pk-seat-border); border-radius: 12px;
+  display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; overflow: hidden;
+}
+.pk-chat-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--pk-seat-border); color: var(--pk-text); font-weight: bold;
+}
+.pk-chat-close {
+  background: transparent; border: none; color: var(--pk-muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+}
+.pk-chat-close:hover { background: rgba(255,255,255,0.08); color: var(--pk-text); }
+.pk-chat-feed {
+  flex: 1 1 auto; min-height: 80px; overflow-y: auto;
+  padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
+}
+.pk-chat-empty { color: var(--pk-muted); font-style: italic; padding: 12px 0; text-align: center; }
+.pk-chat-msg {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 9px; border-radius: 8px; background: rgba(255,255,255,0.04);
+  align-self: flex-start; max-width: 85%; word-break: break-word;
+}
+.pk-chat-msg.mine { align-self: flex-end; background: rgba(46,204,113,0.16); }
+.pk-chat-user { font-size: 11px; font-weight: bold; color: var(--pk-gold); }
+.pk-chat-msg.mine .pk-chat-user { color: var(--pk-green); }
+.pk-chat-text { font-size: 13px; color: #dfe8ee; }
+.pk-chat-input { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--pk-seat-border); }
+.pk-chat-input input {
+  flex: 1; min-width: 0; padding: 9px 10px; border-radius: 8px;
+  border: 1px solid var(--pk-seat-border); background: #2c3e50; color: var(--pk-text); font-size: 13px;
+}
+.pk-chat-input input:focus { outline: none; border-color: var(--pk-green); }
+.pk-chat-input button {
+  padding: 9px 14px; border: none; border-radius: 8px; background: #1f8a5a;
+  color: #fff; font-weight: bold; cursor: pointer; font-size: 13px;
+}
+.pk-chat-input button:disabled { background: #7f8c8d; cursor: not-allowed; opacity: 0.7; }
+.pk-chat-input button:hover:not(:disabled) { filter: brightness(1.1); }
+/* Toggle butonundaki okunmamış rozeti */
+.pk-chat-badge {
+  display: inline-block; margin-left: 6px; min-width: 18px; padding: 0 5px;
+  background: var(--pk-red); color: #fff; border-radius: 9px;
+  font-size: 12px; line-height: 18px; text-align: center; font-weight: bold;
+}
+
 /* ============ Responsive ============ */
 @media (max-width: 900px) {
-  .pk-table-page { grid-template-columns: 1fr; grid-template-areas: "stage" "bottom" "log"; }
+  .pk-table-page.side-open { grid-template-columns: 1fr; grid-template-areas: "stage" "bottom" "side"; }
+  .pk-side { position: static; max-height: none; }
   .pk-log { max-height: 220px; }
-  .pk-table-stage { aspect-ratio: 10 / 12; }
+  .pk-chat { max-height: 320px; }
+  /* Mobilde dikey kaydırma normal: viewport-yükseklik sınırını kaldır, tam genişlik */
+  .pk-table-stage { aspect-ratio: 10 / 12; width: 100%; }
   /* Dikey elips: yükseklik ağırlıklı */
   .pk-felt { inset: 4% 6%; }
 }

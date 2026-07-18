@@ -1,17 +1,30 @@
 const { Sequelize } = require('sequelize');
 const path = require('path');
 
-// SQLite veritabanını projenin kök dizininde oluşturuyoruz
-const sequelize = new Sequelize({
-    dialect: 'sqlite',
-    storage: path.join(__dirname, '../poker-database.sqlite'), 
-    logging: false // Terminali kalabalıklaştırmaması için logları kapattık
-});
+// Veritabanı seçimi:
+//  - DATABASE_URL tanımlıysa (ör. Supabase Postgres) yönetilen Postgres kullanılır.
+//    Render gibi efemer diskli host'larda veri kalıcılığı için gerekli.
+//  - Tanımlı değilse yerel SQLite dosyasına düşülür (LAN/geliştirme, sıfır-config).
+const DATABASE_URL = process.env.DATABASE_URL;
+const DB_KIND = DATABASE_URL ? 'Postgres' : 'SQLite';
+
+const sequelize = DATABASE_URL
+    ? new Sequelize(DATABASE_URL, {
+        dialect: 'postgres',
+        logging: false,
+        // Supabase (ve çoğu yönetilen Postgres) SSL ister.
+        dialectOptions: { ssl: { require: true, rejectUnauthorized: false } }
+    })
+    : new Sequelize({
+        dialect: 'sqlite',
+        storage: path.join(__dirname, '../poker-database.sqlite'),
+        logging: false // Terminali kalabalıklaştırmaması için logları kapattık
+    });
 
 const connectDB = async () => {
     try {
         await sequelize.authenticate();
-        console.log('✅ SQLite Veritabanı Bağlantısı Başarılı!');
+        console.log(`✅ ${DB_KIND} Veritabanı Bağlantısı Başarılı!`);
 
         // B14: Şema mutasyonu (alter) yalnızca development'ta. Production'da alter
         // riskli olabileceğinden sadece eksik tabloları oluşturan düz sync kullanılır.

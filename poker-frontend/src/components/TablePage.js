@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import '../styles/table.css';
 import '../styles/banners.css';
 
@@ -9,7 +9,9 @@ import BetChips from './table/BetChips';
 import CommunityCards from './table/CommunityCards';
 import PotDisplay from './table/PotDisplay';
 import ActionBar from './table/ActionBar';
+import ShowMuckBar from './table/ShowMuckBar';
 import GameLog from './table/GameLog';
+import ChatPanel from './table/ChatPanel';
 import HandBanners from './table/HandBanners';
 import SettingsPanel from './table/SettingsPanel';
 import { getSeatPositions, assignSeats } from './table/seatLayout';
@@ -23,11 +25,17 @@ const SETTING_LABELS = {
 };
 
 function TablePage({
-  tableState, myCards, myHandRank, myInfo, onAction, onStartGame, onSit, onLeave,
-  onRevealCards, revealMessages, activeProposal, voteResult, onProposeSettingChange, onVote, gameLog
+  tableState, myCards, myHandRank, myInfo, onAction, onStartGame, onSit, onLeave, onGoLobby,
+  onRevealCards, onShowMuckDecision, revealMessages, activeProposal, voteResult,
+  onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat
 }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  // Log/sohbet paneli aç/kapa tercihi localStorage'da hatırlanır (bkz. poker_muted deseni)
+  const [showLog, setShowLog] = useState(() => localStorage.getItem('poker_showlog') === '1');
+  const [showChat, setShowChat] = useState(() => localStorage.getItem('poker_showchat') === '1');
+  const [chatUnread, setChatUnread] = useState(0);
+  const seenChatLenRef = useRef((chatMessages || []).length);
 
   // Güvenli veri okuma
   const turnEndTime = tableState?.turnEndTime || null;
@@ -69,6 +77,25 @@ function TablePage({
     return () => clearInterval(interval);
   }, [turnEndTime]);
 
+  // Log/sohbet paneli tercihlerini kalıcı yap
+  useEffect(() => {
+    localStorage.setItem('poker_showlog', showLog ? '1' : '0');
+  }, [showLog]);
+  useEffect(() => {
+    localStorage.setItem('poker_showchat', showChat ? '1' : '0');
+  }, [showChat]);
+
+  // Sohbet kapalıyken gelen mesajları okunmamış say; açıkken sıfırla
+  useEffect(() => {
+    const len = (chatMessages || []).length;
+    if (showChat) {
+      seenChatLenRef.current = len;
+      setChatUnread(0);
+    } else if (len > seenChatLenRef.current) {
+      setChatUnread(len - seenChatLenRef.current);
+    }
+  }, [chatMessages, showChat]);
+
   // Erken çıkış
   if (!tableState || !myInfo) {
     return <div className="app"><h1>Masa Yükleniyor...</h1></div>;
@@ -77,6 +104,10 @@ function TablePage({
   const isPendingLeave = myPlayer?.pendingLeave;
   const canChangeSettings = amISitting && (gameState === 'waiting' || gameState === 'finished');
 
+  // El sonu "göster/gösterme" penceresi (herkese aynı anda)
+  const showMuckDeciders = tableState?.showMuckDeciders ?? [];
+  const isMyShowMuck = amISitting && gameState === 'finished' && showMuckDeciders.includes(myInfo?.id);
+
   // Koltuk yerleşimi (kendine döndürme: benim koltuğum hep alt-orta)
   const positions = getSeatPositions(maxPlayers);
   const seats = assignSeats(players, maxPlayers, myIndex);
@@ -84,8 +115,10 @@ function TablePage({
   // Reveal buton görünürlüğü
   const canReveal = isGameActive && myPlayer && safeMyCards.length > 0;
 
+  const sideOpen = showLog || showChat;
+
   return (
-    <div className="pk-table-page">
+    <div className={`pk-table-page${sideOpen ? ' side-open' : ''}`}>
       <div className="pk-stage-wrap">
         <HandBanners
           gameState={gameState}
@@ -121,9 +154,10 @@ function TablePage({
                 player={p}
                 isMe={!!p && p.id === myInfo.id}
                 isMyId={!!p && p.id === myInfo.id}
-                isCurrentTurn={!!p && currentPlayer?.id === p.id && isGameActive}
+                isCurrentTurn={!!p && ((currentPlayer?.id === p.id && isGameActive) ||
+                  (gameState === 'finished' && showMuckDeciders.includes(p.id)))}
                 timeLeft={timeLeft}
-                turnDuration={turnDuration}
+                turnDuration={!!p && gameState === 'finished' && showMuckDeciders.includes(p.id) ? 12 : turnDuration}
                 gameState={gameState}
                 faceCards={p && p.id === myInfo.id ? safeMyCards : (p ? p.cards : [])}
                 isWinner={gameState === 'finished' && !!p && winners.includes(p.username)}
@@ -169,6 +203,11 @@ function TablePage({
           <div className="pk-spectator">👀 Şu an izleyicisiniz</div>
         )}
 
+        {/* El sonu: kart göster/gösterme kararı (sıra bende) */}
+        {isMyShowMuck && (
+          <ShowMuckBar onDecision={onShowMuckDecision} timeLeft={timeLeft} />
+        )}
+
         {/* Aksiyon çubuğu (sıra bende) */}
         {isMyTurn && (
           <ActionBar
@@ -206,6 +245,19 @@ function TablePage({
               {showSettingsPanel ? 'Paneli Kapat' : '⚙️ Masa Ayarları'}
             </button>
           )}
+          <button className={`pk-ctrl-btn log ${showLog ? 'active' : ''}`} onClick={() => setShowLog(s => !s)}>
+            {showLog ? '📜 Logu Gizle' : '📜 Oyun Akışı'}
+          </button>
+          <button className={`pk-ctrl-btn chat ${showChat ? 'active' : ''}`} onClick={() => setShowChat(s => !s)}>
+            {showChat ? '💬 Sohbeti Gizle' : '💬 Sohbet'}
+            {!showChat && chatUnread > 0 && (
+              <span className="pk-chat-badge">{chatUnread > 9 ? '9+' : chatUnread}</span>
+            )}
+          </button>
+          <button className="pk-ctrl-btn lobby" onClick={onGoLobby}
+            title={amISitting && isGameActive ? 'El bitince masadan ayrılırsınız' : 'Lobiye dön'}>
+            🏠 Lobiye Dön
+          </button>
         </div>
 
         {showSettingsPanel && canChangeSettings && !activeProposal && (
@@ -218,9 +270,19 @@ function TablePage({
         )}
       </div>
 
-      <div className="pk-log-wrap">
-        <GameLog entries={gameLog || []} />
-      </div>
+      {sideOpen && (
+        <div className="pk-side">
+          {showLog && <GameLog entries={gameLog || []} onClose={() => setShowLog(false)} />}
+          {showChat && (
+            <ChatPanel
+              messages={chatMessages || []}
+              myId={myInfo?.id}
+              onSend={onSendChat}
+              onClose={() => setShowChat(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -30,3 +30,6 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.db
+
+# Runtime logs (ngrok / server stdout-stderr)
+*.log

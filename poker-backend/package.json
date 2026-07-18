@@ -19,6 +19,8 @@
     "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
+    "pg": "^8.13.1",
+    "pg-hstore": "^2.3.4",
     "pokersolver": "^2.1.4",
     "sequelize": "^6.37.7",
     "socket.io": "^4.8.3",

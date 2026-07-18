@@ -100,6 +100,8 @@ test('Buton her elde döner (otomatik yeni el dahil)', (t) => {
     table.handleAction(2, 'fold');
     assert.strictEqual(table.gameState, 'finished');
 
+    // Göster/gösterme penceresi (tek pencere, herkese aynı anda): kimse basmaz → süre dolar
+    t.mock.timers.tick(12000);
     // 15sn sonra otomatik yeni el: buton bir sonraki oyuncuya geçmeli
     t.mock.timers.tick(15000);
     assert.strictEqual(table.gameState, 'pre-flop');
@@ -115,6 +117,7 @@ test('Dealer ayrılırsa buton uygun oyuncuya geçer', (t) => {
     table.startGame();
     table.handleAction(1, 'fold');
     table.handleAction(2, 'fold');
+    t.mock.timers.tick(12000); // göster/gösterme penceresi (tek pencere)
     t.mock.timers.tick(15000); // el 2: dealer p2
 
     table.handleAction(2, 'fold');
@@ -122,7 +125,9 @@ test('Dealer ayrılırsa buton uygun oyuncuya geçer', (t) => {
     assert.strictEqual(table.gameState, 'finished');
 
     // Sıradaki dealer p3 olacaktı; p3 ayrılırsa rotasyon yine tutarlı olmalı
+    // (pendingLeave oyuncu da göster/gösterme penceresi alır)
     table.players.find(p => p.id === 3).pendingLeave = true;
+    t.mock.timers.tick(12000);
     t.mock.timers.tick(15000);
     assert.strictEqual(table.gameState, 'pre-flop');
     assert.strictEqual(table.players.length, 2);
@@ -323,15 +328,32 @@ test('Fold ile kazanınca kazananın kartları gizli kalır', (t) => {
     assert.strictEqual(table.gameState, 'finished');
     assert.deepStrictEqual(table.winners, ['p2']);
 
-    const state = table.getPublicState();
+    let state = table.getPublicState();
     for (const p of state.players) {
         assert.deepStrictEqual(p.cards, [], `${p.username} kartları gizli olmalı`);
         assert.strictEqual(p.handDescription, '');
     }
+    assert.strictEqual(state.players[0].hasCards, false, 'Fold edilen koltukta kart sırtı olmamalı');
     assert.strictEqual(state.players[1].hasCards, true, 'Kart sırtı görünmeli');
+
+    // Göster/gösterme penceresi: fold-win'de p1 (fold) ve p2 (kazanan) aynı anda karar verir
+    assert.deepStrictEqual(state.showMuckDeciders, [1, 2]);
+
+    assert.strictEqual(table.showMuckDecision(1, false).success, true); // p1 göstermedi
+    assert.deepStrictEqual(table.showMuckDeciders, [2], 'Karar veren listeden düşer');
+
+    assert.strictEqual(table.showMuckDecision(2, true).success, true); // p2 gösterdi
+    state = table.getPublicState();
+    assert.strictEqual(state.players[0].revealedCards.length, 0);
+    assert.strictEqual(state.players[1].revealedCards.length, 2, 'Gösterilen iki kart görünmeli');
+    assert.deepStrictEqual(state.showMuckDeciders, []);
+
+    // Herkes karar verince pencere erken kapanır, reset kurulur ve yeni el başlar
+    t.mock.timers.tick(15000);
+    assert.strictEqual(table.gameState, 'pre-flop');
 });
 
-test('Showdown\'da kartlar açılır', (t) => {
+test('Showdown: kazanan otomatik açılır, kaybeden seçim yapar', (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const table = makeTable({ stacks: [100, 100], deal: DEAL_2P });
     table.startGame();
@@ -342,10 +364,23 @@ test('Showdown\'da kartlar açılır', (t) => {
     t.mock.timers.tick(5000); // showdown
 
     assert.strictEqual(table.gameState, 'finished');
-    const state = table.getPublicState();
-    assert.strictEqual(state.players[0].cards.length, 2);
-    assert.strictEqual(state.players[1].cards.length, 2);
+    let state = table.getPublicState();
+    // Global açılım kalktı: cards alanı artık hep boş, gösterim revealedCards'tan
+    assert.deepStrictEqual(state.players[0].cards, []);
+    // Kazanan p1 (AA) otomatik açılır, el tarifi görünür
+    assert.strictEqual(state.players[0].revealedCards.length, 2);
     assert.notStrictEqual(state.players[0].handDescription, '');
+    // Kaybeden p2 gizli; pencere onda
+    assert.strictEqual(state.players[1].revealedCards.length, 0);
+    assert.strictEqual(state.players[1].handDescription, '');
+    assert.deepStrictEqual(state.showMuckDeciders, [2]);
+
+    // p2 gösterirse el tarifi de görünür (showdown contender'ı)
+    assert.strictEqual(table.showMuckDecision(2, true).success, true);
+    state = table.getPublicState();
+    assert.strictEqual(state.players[1].revealedCards.length, 2);
+    assert.notStrictEqual(state.players[1].handDescription, '');
+    assert.deepStrictEqual(state.showMuckDeciders, []);
 });
 
 test('Geçersiz aksiyon ve bahis karşısında check reddedilir', (t) => {
@@ -470,4 +505,148 @@ test('getPublicState oyun sırasında rakip kartlarını sızdırmaz', (t) => {
     assert.strictEqual(state.players[0].isDealer, true);
     assert.strictEqual(state.players[1].isSB, true);
     assert.strictEqual(state.players[2].isBB, true);
+});
+
+// --- El sonu "göster/gösterme" sırası ---
+
+test('Fold kartları motorda saklanır ama dışarı sızmaz', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    table.handleAction(1, 'fold');
+    assert.strictEqual(table.players[0].cards.length, 2, 'Motor kartları saklamalı');
+
+    const state = table.getPublicState();
+    assert.deepStrictEqual(state.players[0].cards, []);
+    assert.strictEqual(state.players[0].hasCards, false, 'Fold edilen koltukta kart sırtı olmamalı');
+    assert.deepStrictEqual(state.players[0].revealedCards, []);
+
+    // Fold eden el sırasında kart açamaz (gösterme şansı el sonunda gelir)
+    assert.strictEqual(table.revealCards(1, [0]).success, false);
+});
+
+test('Fold-win: kimse otomatik açılmaz, herkese tek pencere aynı anda, timeout=gösterme', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.strictEqual(table.gameState, 'finished'); // p3 fold-win
+
+    let state = table.getPublicState();
+    assert.ok(state.players.every(p => p.revealedCards.length === 0), 'Kimse otomatik açılmamalı');
+    // Fold-win'de kazanan dahil herkes aynı anda karar verebilir
+    assert.deepStrictEqual(state.showMuckDeciders, [1, 2, 3]);
+    assert.ok(state.turnEndTime > 0, 'Pencere geri sayımı yayınlanmalı');
+
+    t.mock.timers.tick(12000); // pencere süresi doldu → kimse göstermedi
+
+    state = table.getPublicState();
+    assert.deepStrictEqual(state.showMuckDeciders, []);
+    assert.strictEqual(state.turnEndTime, null);
+    assert.ok(state.players.every(p => p.revealedCards.length === 0), 'Timeout gösterme sayılmalı');
+
+    t.mock.timers.tick(15000);
+    assert.strictEqual(table.gameState, 'pre-flop', 'Pencere bitince reset kurulup yeni el başlamalı');
+});
+
+test('Fold-win: kazanan isterse kartını açabilir', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.strictEqual(table.gameState, 'finished'); // p3 fold-win
+    assert.deepStrictEqual(table.winners, ['p3']);
+
+    // Kazanan p3 karar penceresinde ve otomatik açılmamış
+    assert.ok(table.showMuckDeciders.includes(3), 'Kazanan da karar penceresinde olmalı');
+    assert.strictEqual(table.getPublicState().players[2].revealedCards.length, 0);
+
+    // İsterse gösterebilir → kartları herkese açılır
+    const res = table.showMuckDecision(3, true);
+    assert.strictEqual(res.success, true, 'Kazanan gösterebilmeli');
+    assert.strictEqual(res.revealedCards.length, 2);
+
+    const state = table.getPublicState();
+    assert.strictEqual(state.players[2].revealedCards.length, 2,
+        'Kazananın açtığı kartlar public state\'te görünmeli');
+    assert.ok(!state.showMuckDeciders.includes(3), 'Karar veren listeden düşmeli');
+});
+
+test('showMuckDecision: yanlış durumda reddedilir, fold edenin el tarifi görünmez', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    // Oyun sürerken reddedilir
+    assert.strictEqual(table.showMuckDecision(1, true).success, false);
+
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.deepStrictEqual(table.showMuckDeciders, [1, 2, 3]);
+
+    // p1 (fold etmişti) gösterir: iki kart açılır ama el tarifi yine gizli
+    const res = table.showMuckDecision(1, true);
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.revealedCards.length, 2);
+    const state = table.getPublicState();
+    assert.strictEqual(state.players[0].revealedCards.length, 2);
+    assert.strictEqual(state.players[0].handDescription, '', 'Fold edenin el tarifi görünmemeli');
+    assert.deepStrictEqual(state.showMuckDeciders, [2, 3], 'Karar veren listeden düşer');
+
+    // Aynı oyuncu tekrar karar veremez
+    assert.strictEqual(table.showMuckDecision(1, false).success, false);
+});
+
+test('Bağlantısı kopan oyuncu göster/gösterme penceresine alınmaz', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    table.markDisconnected(2);
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.strictEqual(table.gameState, 'finished');
+
+    // Kopuk p2 dışarıda; p1 ve p3 karar verebilir
+    assert.deepStrictEqual(table.showMuckDeciders, [1, 3]);
+});
+
+test('El içinde iki kartını açan oyuncu pencereye girmez, kartları açık kalır', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+
+    assert.strictEqual(table.revealCards(1, [0, 1]).success, true);
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.strictEqual(table.gameState, 'finished');
+
+    // p1'in iki kartı zaten açık → pencereye alınmaz; p2 ve p3 alınır
+    assert.deepStrictEqual(table.showMuckDeciders, [2, 3]);
+    assert.strictEqual(table.getPublicState().players[0].revealedCards.length, 2,
+        'Fold öncesi açılan kartlar açık kalmalı');
+});
+
+test('Pencere açıkken manuel startGame sekansı temiz iptal eder', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const table = makeTable({ deal: DEAL_3P });
+    table.startGame();
+    table.handleAction(1, 'fold');
+    table.handleAction(2, 'fold');
+    assert.deepStrictEqual(table.showMuckDeciders, [1, 2, 3]);
+
+    // Yeni el pencere ortasında manuel başlatılır (server.js finished'ta izin veriyor)
+    assert.strictEqual(table.startGame().success, true);
+    assert.strictEqual(table.gameState, 'pre-flop');
+    assert.deepStrictEqual(table.showMuckDeciders, []);
+
+    // Bayat pencere timer'ı yeni ele dokunmamalı
+    t.mock.timers.tick(12000);
+    assert.strictEqual(table.gameState, 'pre-flop');
+    assert.deepStrictEqual(table.showMuckDeciders, []);
 });

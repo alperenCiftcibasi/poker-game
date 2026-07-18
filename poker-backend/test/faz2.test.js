@@ -100,6 +100,8 @@ test('markDisconnected işaretler, getPublicState yansıtır, reset masadan çı
     table.handleAction(2, 'fold');
     assert.strictEqual(table.gameState, 'finished');
 
+    // Göster/gösterme penceresi: kopuk p1 hariç herkese aynı anda; kimse basmaz → süre dolar
+    t.mock.timers.tick(12000);
     // 15sn reset: bağlantısı kopan p1 masadan çıkarılır
     t.mock.timers.tick(15000);
     assert.ok(!table.players.some(p => p.id === 1), 'Bağlantısı kopan p1 çıkarılmalı');
@@ -121,6 +123,7 @@ test('markReconnected: yeniden bağlanan oyuncu reset\'te masada kalır', (t) =>
     table.handleAction(2, 'fold');
     assert.strictEqual(table.gameState, 'finished');
 
+    t.mock.timers.tick(12000); // göster/gösterme penceresi (tek pencere, herkese aynı anda)
     t.mock.timers.tick(15000);
     assert.ok(table.players.some(p => p.id === 1), 'Yeniden bağlanan p1 masada kalmalı');
     assert.strictEqual(table.players.length, 3);

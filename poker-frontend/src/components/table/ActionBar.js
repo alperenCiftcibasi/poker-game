@@ -15,11 +15,11 @@ function ActionBar({
 
   const clamp = (v) => Math.max(safeMinRaise, Math.min(maxRaiseTo, Math.round(v)));
 
-  // Ön ayarlar: 2x/3x taban bahse göre, Pot = pot boyu raise, Max = all-in
-  const base = betToMatch > 0 ? betToMatch : bigBlind;
+  // Ön ayarlar: 2x/3x pot miktarına göre, Pot = pot boyu raise, Max = all-in
+  const potBase = pot > 0 ? pot : bigBlind;
   const presets = [
-    { key: '2x', label: '2x', to: clamp(base * 2) },
-    { key: '3x', label: '3x', to: clamp(base * 3) },
+    { key: '2x', label: '2x', to: clamp(potBase * 2) },
+    { key: '3x', label: '3x', to: clamp(potBase * 3) },
     { key: 'pot', label: 'Pot', to: clamp(betToMatch + pot + callAmount) },
     { key: 'max', label: 'All-in', to: maxRaiseTo }
   ];

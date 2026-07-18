@@ -14,7 +14,12 @@ if (!process.env.JWT_SECRET) {
 }
 
 // CORS için izin verilen origin(ler). Varsayılan tüm originlere açık (LAN/dev için pratik).
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+// '*' tüm originlere izin verir. Birden çok origin virgülle ayrılarak verilebilir
+// (ör. Vercel prod domain + preview): CORS_ORIGIN=https://a.vercel.app,https://b.vercel.app
+const rawCorsOrigin = process.env.CORS_ORIGIN || '*';
+const CORS_ORIGIN = rawCorsOrigin === '*'
+    ? '*'
+    : rawCorsOrigin.split(',').map(o => o.trim()).filter(Boolean);
 
 const { connectDB } = require('./config/db');
 const startCronJobs = require('./cron/chipReset');
@@ -32,6 +37,14 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/admin', adminRoutes);
+
+// 🩺 Sağlık kontrolü / keep-alive endpoint'i. Render free tier ~15dk boştan sonra
+// uyur; UptimeRobot/cron-job.org bu route'a periyodik istek atarak instance'ı
+// uyanık tutar (soğuk başlangıcı ve RAM'deki oyun durumunun sıfırlanmasını önler).
+// SPA fallback'ten ÖNCE tanımlanır ki index.html ile gölgelenmesin.
+app.get('/healthz', (req, res) => {
+    res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
 
 // 🌐 PRODUCTION BUILD SERVİSİ: frontend derlenmişse tek porttan servis et.
 // Express 5'te `app.get('*')` geçersiz olduğundan SPA fallback API route'larından
@@ -162,8 +175,26 @@ io.on('connection', (socket) => {
         socket.join(`table_${tableId}`);
         socket.tableId = tableId;
         socket.emit('tableUpdated', table.getPublicState());
+        // Masaya özel sohbet geçmişini yeni katılan sokete gönder
+        socket.emit('chatHistory', table.chatHistory);
         // Yeniden bağlandıysa diğer oyuncular da koltuğun aktifleştiğini görsün
         if (didReconnect) broadcastTableUpdate(io, table);
+    });
+
+    // 💬 MASA SOHBETİ (masayı görüntüleyen herkes yazabilir — oturan + izleyici)
+    socket.on('chatMessage', ({ tableId, text } = {}) => {
+        const table = activeTables.get(tableId);
+        if (!table) return;
+        // Sadece o masayı görüntüleyen kullanıcı o masaya yazabilir
+        if (String(socket.tableId) !== String(tableId)) return;
+        // Basit spam koruması: mesajlar arası minimum aralık
+        const now = Date.now();
+        if (socket.lastChatAt && now - socket.lastChatAt < 400) return;
+        socket.lastChatAt = now;
+
+        const entry = table.addChatMessage(socket.user, text);
+        if (!entry) return;
+        io.to(`table_${tableId}`).emit('chatMessage', entry);
     });
 
     // 🪑 MASAYA OTURMA (buy-in ile)
@@ -216,6 +247,15 @@ io.on('connection', (socket) => {
         socket.tableId = tableId;
         socket.join(`table_${tableId}`);
         broadcastTableUpdate(io, table);
+    });
+
+    // Lobiye dönüş: masa odasından çık ki bayat masa yayınları lobiye akmasın.
+    // (Koltuktan kalkma değil — o 'leaveTable'; oturan oyuncu el bitene kadar masada kalır.)
+    socket.on('leaveTableView', () => {
+        if (socket.tableId) {
+            socket.leave(`table_${socket.tableId}`);
+            socket.tableId = null;
+        }
     });
 
     socket.on('leaveTable', (tableId) => {
@@ -278,6 +318,25 @@ io.on('connection', (socket) => {
             });
             broadcastTableUpdate(io, table);
         }
+    });
+
+    // El sonu "göster/gösterme" kararı (sırası gelen oyuncudan)
+    socket.on('showMuckDecision', ({ tableId, show } = {}) => {
+        const table = activeTables.get(tableId);
+        if (!table) return;
+
+        const result = table.showMuckDecision(socket.user.id, !!show);
+        if (!result.success) return socket.emit('error', result.message);
+
+        if (result.show) {
+            io.to(`table_${tableId}`).emit('cardRevealed', {
+                username: result.username,
+                revealedCards: result.revealedCards
+            });
+        } else {
+            io.to(`table_${tableId}`).emit('showMuckResult', { username: result.username, show: false });
+        }
+        broadcastTableUpdate(io, table);
     });
 
     // --- MASA AYARLARI OYLAMA ---

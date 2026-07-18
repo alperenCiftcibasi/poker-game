@@ -38,6 +38,7 @@ function App() {
   const [showBuyInModal, setShowBuyInModal] = useState(false);
   const [buyInBank, setBuyInBank] = useState(null); // null = bakiye yükleniyor
   const [gameLog, setGameLog] = useState([]); // Faz 4.4: aksiyon/olay logu
+  const [chatMessages, setChatMessages] = useState([]); // Masaya özel yazılı sohbet
   const [muted, setMuted] = useState(isMuted()); // Faz 5: ses aç/kapa
   const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
   const myIdRef = useRef(null);    // socket dinleyicileri için taze kullanıcı id'si
@@ -86,6 +87,33 @@ function App() {
       }
     }
   }, [token, navigate, location.pathname]);
+
+  // --- 1.5. ETKİ: TAZE KULLANICI BİLGİSİ (isAdmin/chips senkronu) ---
+  // localStorage'daki poker_user, giriş anındaki isAdmin/chips değerini tutar.
+  // Bir oyuncuya sonradan admin yetkisi verilirse (veya çip güncellenirse) bu
+  // önbellek eskir ve oyuncu yeniden giriş yapana kadar admin panelini göremez.
+  // Bunu önlemek için token varken sunucudan taze bilgiyi çekip state + önbelleği
+  // güncelliyoruz. Böylece sayfa yenilenince admin butonu kendiliğinden çıkar.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetch(`${SERVER_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((fresh) => {
+        if (cancelled || !fresh) return;
+        setUser((prev) => {
+          const merged = { ...(prev || {}), ...fresh };
+          localStorage.setItem('poker_user', JSON.stringify(merged));
+          return merged;
+        });
+      })
+      .catch(() => {}); // Ağ hatası: mevcut önbellekli bilgiyle devam et
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   // --- 2. ETKİ: SOCKET YÖNETİMİ ---
   // Bu efekt sadece SOCKET bağlantısını yönetir. Sayfa değişince kopmaz.
@@ -145,9 +173,11 @@ function App() {
         }
 
         // Sıra sesi: sadece bize sıra GEÇTİĞİNDE bir kez çal
+        // (el sonu "göster/gösterme" penceremiz açıldığında da)
         const active = !['waiting', 'finished', 'showdown'].includes(state.gameState);
         const cur = state.players?.[state.currentTurnIndex];
-        const myTurn = active && cur && cur.id === myIdRef.current;
+        const myTurn = (active && cur && cur.id === myIdRef.current) ||
+          (state.gameState === 'finished' && (state.showMuckDeciders || []).includes(myIdRef.current));
         if (myTurn && !wasMyTurnRef.current) playSound('turn');
         wasMyTurnRef.current = !!myTurn;
       });
@@ -161,6 +191,9 @@ function App() {
         setTimeout(() => setRevealMessages(prev => prev.slice(1)), 5000);
         addLog('reveal', `👁 ${data.username} kart açtı`);
       });
+      newSocket.on('showMuckResult', (data) => {
+        addLog('reveal', `🙈 ${data.username} kartlarını göstermedi`);
+      });
       newSocket.on('newProposal', (proposal) => {
         setActiveProposal(proposal);
       });
@@ -173,6 +206,13 @@ function App() {
       newSocket.on('settingChanged', (data) => {
         setVoteResult({ passed: true, setting: data.setting, newValue: data.newValue, immediate: true });
         setTimeout(() => setVoteResult(null), 3000);
+      });
+      // Masa sohbeti: masaya girişte geçmiş, sonra tek tek yeni mesajlar
+      newSocket.on('chatHistory', (history) => {
+        setChatMessages(Array.isArray(history) ? history : []);
+      });
+      newSocket.on('chatMessage', (msg) => {
+        setChatMessages(prev => [...prev, msg].slice(-100));
       });
       newSocket.on('error', (message) => alert(`Sunucu Hatası: ${message}`));
 
@@ -199,6 +239,7 @@ function App() {
       setActiveProposal(null);
       setVoteResult(null);
       setGameLog([]);
+      setChatMessages([]);
       winnerKeyRef.current = '';
       wasMyTurnRef.current = false;
     }
@@ -273,12 +314,27 @@ function App() {
     }
   };
 
+  // Lobiye dönüş: oturuyorsak masadan da kalk (el ortasındaysa sunucu "el bitince
+  // ayrıl" olarak işler). pendingLeave zaten açıksa tekrar emit etme — toggle kapatır.
+  const handleGoToLobby = () => {
+    if (socket && tableState) {
+      const me = tableState.players?.find(p => p.id === user?.id);
+      if (me && !me.pendingLeave) socket.emit('leaveTable', tableState.id);
+      socket.emit('leaveTableView');
+    }
+    navigate('/lobby');
+  };
+
   const handleAction = (action, amount) => {
     if (socket && tableState) socket.emit('playerAction', { tableId: tableState.id, action, amount });
   };
 
   const handleRevealCards = (cardIndices) => {
     if (socket && tableState) socket.emit('revealCards', { tableId: tableState.id, cardIndices });
+  };
+
+  const handleShowMuckDecision = (show) => {
+    if (socket && tableState) socket.emit('showMuckDecision', { tableId: tableState.id, show });
   };
   
   const handleStartGame = () => {
@@ -294,6 +350,12 @@ function App() {
   const handleVote = (vote) => {
     if (socket && tableState) {
       socket.emit('voteOnProposal', { tableId: tableState.id, vote });
+    }
+  };
+
+  const handleSendChat = (text) => {
+    if (socket && tableState) {
+      socket.emit('chatMessage', { tableId: tableState.id, text });
     }
   };
 
@@ -403,13 +465,17 @@ function App() {
                 onStartGame={handleStartGame}
                 onSit={handleOpenBuyIn}
                 onLeave={handleLeaveTable}
+                onGoLobby={handleGoToLobby}
                 onRevealCards={handleRevealCards}
+                onShowMuckDecision={handleShowMuckDecision}
                 revealMessages={revealMessages}
                 activeProposal={activeProposal}
                 voteResult={voteResult}
                 onProposeSettingChange={handleProposeSettingChange}
                 onVote={handleVote}
                 gameLog={gameLog}
+                chatMessages={chatMessages}
+                onSendChat={handleSendChat}
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>
