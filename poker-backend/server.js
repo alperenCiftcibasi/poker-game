@@ -67,6 +67,9 @@ startCronJobs();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN, methods: ["GET", "POST"] } });
 
+// HTTP route'lar (ör. masa silme) io'ya req.app.get('io') ile erişir.
+app.set('io', io);
+
 // DB invariant'ı: User.chips = kasa + masa. Her persist yolunda bankChips + chips yazılır.
 async function saveTableToDB(table) {
     try {
@@ -299,7 +302,10 @@ io.on('connection', (socket) => {
         } else {
             broadcastTableUpdate(io, table);
             // Faz 4.4: aksiyon logu için amount da yayınlanır (raise için "raise to" toplamı)
-            io.to(`table_${tableId}`).emit('actionBroadcast', { username: socket.user.username, action, amount });
+            // allIn: aksiyon oyuncunun tüm çipini götürdüyse (call/raise) → istemci all-in sesi çalar
+            const actingPlayer = table.players.find(p => p.id === socket.user.id);
+            const allIn = actingPlayer?.status === 'all-in';
+            io.to(`table_${tableId}`).emit('actionBroadcast', { username: socket.user.username, action, amount, allIn });
             if (table.gameState === 'finished') await saveTableToDB(table);
         }
     });

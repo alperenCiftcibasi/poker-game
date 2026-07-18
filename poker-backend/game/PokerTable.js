@@ -205,6 +205,18 @@ class PokerTable {
         this.turnEndTime = null;
     }
 
+    // Masa bellekten kaldırılırken (ör. admin silmesi) tüm zamanlayıcıları temizle;
+    // aksi halde setTimeout'lar masaya referans tutar ve sızıntıya / hayalet
+    // güncelleme çağrılarına yol açar.
+    destroy() {
+        this.clearTurnTimer();
+        this._clearShowMuck();
+        this._clearProposal();
+        if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = null; }
+        if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
+        this.updateCallback = null;
+    }
+
     startTurnTimer() {
         this.clearTurnTimer();
         const activeStates = ['pre-flop', 'flop', 'turn', 'river'];

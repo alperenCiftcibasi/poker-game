@@ -43,12 +43,17 @@ function App() {
   const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
   const myIdRef = useRef(null);    // socket dinleyicileri için taze kullanıcı id'si
   const wasMyTurnRef = useRef(false); // sıra sesini sadece geçişte çal
+  const navigateRef = useRef(null); // socket dinleyicilerinden yönlendirme için taze navigate
+  const boardLenRef = useRef(-1);   // ortak kart sayısı arttığında (flop/turn/river) ses çal; -1 = ilk state, ses yok
 
   const navigate = useNavigate();
   const location = useLocation();
 
   // Socket dinleyicileri closure'da eski user'ı yakalamasın diye id'yi ref'te tut
   myIdRef.current = user?.id ?? null;
+  // Socket efekti [token]'a bağlı; navigate'i doğrudan kullanmak yerine ref'ten okuruz
+  // (deps'i şişirip her yönlendirmede socket'i sıfırlamamak için).
+  navigateRef.current = navigate;
 
   // --- 1. ETKİ: AUTH GUARD (GİRİŞ KONTROLÜ VE YÖNLENDİRME) ---
   // Bu efekt sadece giriş yapılıp yapılmadığını ve token geçerliliğini kontrol eder.
@@ -160,6 +165,12 @@ function App() {
         } else {
           setActiveProposal(null);
         }
+        // Ortak kart(lar) masaya geldiğinde ses çal (flop/turn/river).
+        // -1 = mount/reconnect sonrası ilk state → yanlış tetikleme olmasın diye ses yok.
+        const boardLen = state.communityCards?.length || 0;
+        if (boardLenRef.current >= 0 && boardLen > boardLenRef.current) playSound('board');
+        boardLenRef.current = boardLen;
+
         // Kazananı loga bir kez ekle (yeni elde ref sıfırlanır)
         if (state.gameState === 'finished' && state.winners && state.winners.length) {
           const key = state.winners.join(',');
@@ -185,11 +196,18 @@ function App() {
       newSocket.on('handRankUpdate', (data) => setMyHandRank(data.rank));
       newSocket.on('actionBroadcast', (data) => {
         addLog('action', formatAction(data.username, data.action, data.amount));
+        // Her aksiyonun kendi sesi; all-in (call/raise tüm çipi götürdüyse) hepsini ezer.
+        if (data.allIn) {
+          playSound('allin');
+        } else if (['fold', 'check', 'call', 'raise'].includes(data.action)) {
+          playSound(data.action);
+        }
       });
       newSocket.on('cardRevealed', (data) => {
         setRevealMessages(prev => [...prev, data]);
         setTimeout(() => setRevealMessages(prev => prev.slice(1)), 5000);
         addLog('reveal', `👁 ${data.username} kart açtı`);
+        playSound('flip');
       });
       newSocket.on('showMuckResult', (data) => {
         addLog('reveal', `🙈 ${data.username} kartlarını göstermedi`);
@@ -213,8 +231,18 @@ function App() {
       });
       newSocket.on('chatMessage', (msg) => {
         setChatMessages(prev => [...prev, msg].slice(-100));
+        // Başkasından gelen mesajda hafif bildirim sesi (kendi mesajım sessiz)
+        if (msg && msg.userId !== myIdRef.current) playSound('chat');
       });
       newSocket.on('error', (message) => alert(`Sunucu Hatası: ${message}`));
+      // Masa admin tarafından silindi: masadaki/izleyen herkesi bilgilendir ve lobiye at.
+      newSocket.on('tableClosed', (data) => {
+        alert(data?.message || 'Bu masa kapatıldı.');
+        setTableState(null);
+        setMyCards([]);
+        setMyHandRank('');
+        navigateRef.current?.('/lobby');
+      });
 
       return () => {
         newSocket.disconnect();
@@ -242,6 +270,7 @@ function App() {
       setChatMessages([]);
       winnerKeyRef.current = '';
       wasMyTurnRef.current = false;
+      boardLenRef.current = -1;
     }
   }, [socket, location.pathname]);
 

@@ -27,6 +27,7 @@ function LobbyPage({ socket, isConnected, token, user }) {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const loadTables = useCallback(() => {
     if (!socket) return;
@@ -98,6 +99,35 @@ function LobbyPage({ socket, isConnected, token, user }) {
       alert('Masa oluşturulurken bir hata oluştu.');
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Masa sil (yalnızca admin). İçinde oyuncu olsa bile sunucu güvenle iade edip siler.
+  const handleDelete = async (table) => {
+    const ok = window.confirm(
+      `"${table.name}" masasını silmek istediğine emin misin?` +
+      (table.playerCount > 0
+        ? `\n\nMasada ${table.playerCount} oyuncu var; çipleri kasalarına iade edilecek ve lobiye atılacaklar.`
+        : '')
+    );
+    if (!ok) return;
+
+    setDeletingId(table.id);
+    try {
+      const res = await fetch(`${SERVER_URL}/api/tables/${table.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || 'Masa silinemedi.');
+        return;
+      }
+      loadTables();
+    } catch (err) {
+      alert('Masa silinirken bir hata oluştu.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -190,13 +220,25 @@ function LobbyPage({ socket, isConnected, token, user }) {
                   <div><span className="k">Buy-in</span><span className="v">{t.minBuyIn} - {t.maxBuyIn > 0 ? t.maxBuyIn : '∞'}</span></div>
                   <div><span className="k">Oyuncu</span><span className="v">{t.playerCount} / {t.maxPlayers}</span></div>
                 </div>
-                <button
-                  className="lobby-join-btn"
-                  onClick={() => goToTable(t.id)}
-                  disabled={!isConnected}
-                >
-                  {!isConnected ? 'Bağlanılıyor…' : full ? 'İzle' : 'Otur / İzle'}
-                </button>
+                <div className="lobby-card-actions">
+                  <button
+                    className="lobby-join-btn"
+                    onClick={() => goToTable(t.id)}
+                    disabled={!isConnected}
+                  >
+                    {!isConnected ? 'Bağlanılıyor…' : full ? 'İzle' : 'Otur / İzle'}
+                  </button>
+                  {user?.isAdmin && (
+                    <button
+                      className="lobby-delete-btn"
+                      onClick={() => handleDelete(t)}
+                      disabled={deletingId === t.id}
+                      title="Masayı sil"
+                    >
+                      {deletingId === t.id ? '…' : '🗑'}
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -240,9 +282,13 @@ const styles = `
   .lobby-card-info > div { display: flex; justify-content: space-between; font-size: 14px; }
   .lobby-card-info .k { color: #95a5a6; }
   .lobby-card-info .v { color: #f1c40f; font-weight: bold; }
-  .lobby-join-btn { width: 100%; background: #e67e22; color: #fff; border: none; padding: 11px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+  .lobby-card-actions { display: flex; gap: 8px; }
+  .lobby-join-btn { flex: 1; background: #e67e22; color: #fff; border: none; padding: 11px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
   .lobby-join-btn:hover { background: #d35400; }
   .lobby-join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lobby-delete-btn { flex: 0 0 auto; width: 44px; background: #7f1d1d; color: #fff; border: none; padding: 11px 0; border-radius: 8px; font-size: 15px; cursor: pointer; transition: 0.2s; }
+  .lobby-delete-btn:hover { background: #b91c1c; }
+  .lobby-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   @media (max-width: 600px) {
     .lobby-header { flex-direction: column; align-items: stretch; }
