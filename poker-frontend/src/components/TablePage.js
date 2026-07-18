@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import '../styles/table.css';
 import '../styles/banners.css';
 
-import { Card } from './table/Card';
+import { Card, cardKey } from './table/Card';
 import TableFelt from './table/TableFelt';
 import Seat from './table/Seat';
 import BetChips from './table/BetChips';
@@ -25,7 +25,7 @@ const SETTING_LABELS = {
 };
 
 function TablePage({
-  tableState, myCards, myHandRank, myInfo, onAction, onStartGame, onSit, onLeave, onGoLobby,
+  tableState, myCards, myHandRank, myComboCards, myInfo, onAction, onStartGame, onSit, onLeave, onGoLobby,
   onRevealCards, onShowMuckDecision, revealMessages, activeProposal, voteResult,
   onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat
 }) {
@@ -46,6 +46,10 @@ function TablePage({
   const pot = tableState?.pot || 0;
   const currentTurnIndex = tableState?.currentTurnIndex ?? -1;
   const safeMyCards = myCards || [];
+  // Elimizdeki kombinasyonu oluşturan kartların anahtar kümesi (kartlar deste genelinde
+  // benzersiz olduğundan bu anahtarlar yalnızca kendi kartlarımıza + ilgili board kartlarına eşleşir).
+  const comboSet = new Set(myComboCards || []);
+  const isCombo = (c) => comboSet.has(cardKey(c));
   const settings = tableState?.settings || {};
   const maxPlayers = tableState?.maxPlayers || Math.max(2, players.length);
 
@@ -143,7 +147,7 @@ function TablePage({
           <TableFelt>
             <div className="pk-center">
               <PotDisplay pot={pot} />
-              <CommunityCards cards={communityCards} />
+              <CommunityCards cards={communityCards} highlightKeys={comboSet} />
             </div>
           </TableFelt>
 
@@ -160,6 +164,7 @@ function TablePage({
                 turnDuration={!!p && gameState === 'finished' && showMuckDeciders.includes(p.id) ? 12 : turnDuration}
                 gameState={gameState}
                 faceCards={p && p.id === myInfo.id ? safeMyCards : (p ? p.cards : [])}
+                highlightKeys={comboSet}
                 isWinner={gameState === 'finished' && !!p && winners.includes(p.username)}
               />
               {p && <BetChips position={positions[slot]} amount={p.currentBet} />}
@@ -178,7 +183,7 @@ function TablePage({
             ) : safeMyCards.length > 0 ? (
               <>
                 <div className="pk-myhand-cards">
-                  {safeMyCards.map((c, i) => <Card key={i} card={c} size="sm" />)}
+                  {safeMyCards.map((c, i) => <Card key={i} card={c} size="sm" highlight={isCombo(c)} />)}
                 </div>
                 {myHandRank && <span className="pk-myhand-rank">🎯 {myHandRank}</span>}
                 {canReveal && (

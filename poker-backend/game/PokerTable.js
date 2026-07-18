@@ -98,6 +98,21 @@ class PokerTable {
         return candidates[0];
     }
 
+    // Bir el (pokersolver Hand) içinde adlandırılmış kombinasyonu OLUŞTURAN kartların
+    // anahtarlarını döndürür ("kicker"lar hariç). Anahtar formatı: değer+suit, ör. "Th", "As".
+    // pokersolver her el tipinde önce kombinasyon kartlarını, sonra kicker'ları sıralar;
+    // isme göre baştan kaç kart alacağımızı biliyoruz.
+    _comboCardKeys(hand) {
+        if (!hand || !Array.isArray(hand.cards)) return [];
+        const COMBO_COUNTS = {
+            'Straight Flush': 5, 'Four of a Kind': 4, 'Full House': 5,
+            'Flush': 5, 'Straight': 5, 'Three of a Kind': 3,
+            'Two Pair': 4, 'Pair': 2, 'High Card': 0
+        };
+        const n = COMBO_COUNTS[hand.name] != null ? COMBO_COUNTS[hand.name] : 0;
+        return hand.cards.slice(0, n).map(c => `${c.value}${c.suit}`);
+    }
+
     evaluatePlayerHand(player) {
         if (player.status === 'folded' || player.cards.length === 0) return null;
 
@@ -105,8 +120,11 @@ class PokerTable {
         if (this.communityCards.length > 0) {
             const combinedCards = player.cards.concat(this.communityCards);
             const convertedCards = combinedCards.map(c => this._convertCard(c));
-            try { return Hand.solve(convertedCards).descr; }
-            catch (e) { return "Hesaplanıyor..."; }
+            try {
+                const hand = Hand.solve(convertedCards);
+                return { rank: hand.descr, comboCards: this._comboCardKeys(hand) };
+            }
+            catch (e) { return { rank: "Hesaplanıyor...", comboCards: [] }; }
         }
 
         // Pre-flop: Sadece iki kartımızı değerlendir
@@ -120,13 +138,14 @@ class PokerTable {
                 const suit1 = holeCards[0][1];
                 const suit2 = holeCards[1][1];
 
-                if (rank1 === rank2) return `Çift ${rank1}`;
-                if (suit1 === suit2) return `${rank1}${rank2} Suited`;
-                return `${rank1}${rank2} Offsuit`;
+                // Cep çifti: iki kart da kombinasyonu oluşturur → ikisi de işaretlensin.
+                if (rank1 === rank2) return { rank: `Çift ${rank1}`, comboCards: [holeCards[0], holeCards[1]] };
+                if (suit1 === suit2) return { rank: `${rank1}${rank2} Suited`, comboCards: [] };
+                return { rank: `${rank1}${rank2} Offsuit`, comboCards: [] };
             }
-            return hand.descr;
+            return { rank: hand.descr, comboCards: this._comboCardKeys(hand) };
         } catch (e) {
-            return "Hesaplanıyor...";
+            return { rank: "Hesaplanıyor...", comboCards: [] };
         }
     }
 

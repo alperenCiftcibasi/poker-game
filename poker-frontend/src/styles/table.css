@@ -9,6 +9,7 @@
   --pk-rail-light: #5a4130;
   --pk-green: #2ecc71;
   --pk-red: #e74c3c;
+  --pk-combo: #2fd0ff; /* elimizdeki kombinasyonu oluşturan kartların işaret rengi */
   --pk-card-w: clamp(34px, 4.6vw, 46px);
   --pk-card-h: clamp(48px, 6.6vw, 66px);
 }
@@ -95,6 +96,22 @@
 .pk-card .pk-card-rank { font-size: calc(var(--pk-card-w) * 0.42); }
 .pk-card .pk-card-suit { font-size: calc(var(--pk-card-w) * 0.5); }
 .pk-card.red { color: #d5122b; } .pk-card.black { color: #1a1a1a; }
+
+/* Elimizdeki kombinasyonu (pair/two pair/straight...) oluşturan kartlar: farklı renk çerçeve + parıltı */
+.pk-card.pk-card-combo {
+  border-color: var(--pk-combo);
+  box-shadow: 0 0 0 2px var(--pk-combo), 0 0 10px 2px rgba(47,208,255,0.75);
+  transform: translateY(-2px);
+  animation: pk-combo-pulse 1.6s ease-in-out infinite;
+}
+@keyframes pk-combo-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--pk-combo), 0 0 8px 1px rgba(47,208,255,0.55); }
+  50%      { box-shadow: 0 0 0 2px var(--pk-combo), 0 0 14px 3px rgba(47,208,255,0.95); }
+}
+.pk-card-mini.pk-card-combo {
+  outline: 2px solid var(--pk-combo);
+  box-shadow: 0 0 8px 1px rgba(47,208,255,0.8);
+}
 
 .pk-card-back {
   display: inline-block; width: calc(var(--pk-card-w) * 0.78); height: calc(var(--pk-card-h) * 0.78);

@@ -85,8 +85,8 @@ function broadcastTableUpdate(io, table) {
     io.to(roomName).emit('tableUpdated', table.getPublicState());
     table.players.forEach(player => {
         if (player.status === 'playing' || player.status === 'all-in') {
-            const currentHandRank = table.evaluatePlayerHand(player);
-            if (currentHandRank) io.to(player.socketId).emit('handRankUpdate', { rank: currentHandRank });
+            const handInfo = table.evaluatePlayerHand(player);
+            if (handInfo) io.to(player.socketId).emit('handRankUpdate', { rank: handInfo.rank, comboCards: handInfo.comboCards });
         }
     });
 }
@@ -170,8 +170,8 @@ io.on('connection', (socket) => {
             if (existingPlayer.cards && existingPlayer.cards.length > 0) {
                 socket.emit('receiveCards', { cards: existingPlayer.cards });
                 // Faz 5: el ortasında yenilemede el sıralaması da geri gelsin
-                const rank = table.evaluatePlayerHand(existingPlayer);
-                if (rank) socket.emit('handRankUpdate', { rank });
+                const handInfo = table.evaluatePlayerHand(existingPlayer);
+                if (handInfo) socket.emit('handRankUpdate', { rank: handInfo.rank, comboCards: handInfo.comboCards });
             }
         }
 

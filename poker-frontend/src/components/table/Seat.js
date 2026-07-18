@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, MiniCard, CardBack } from './Card';
+import { Card, MiniCard, CardBack, cardKey } from './Card';
 
 // Kullanıcı adından tutarlı bir avatar rengi üret
 function avatarHue(name = '') {
@@ -19,7 +19,7 @@ function statusBadge(player, gameState) {
 
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
-  gameState, faceCards, isWinner
+  gameState, faceCards, highlightKeys, isWinner
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
 
@@ -58,7 +58,9 @@ function Seat({
     <div className={classes} style={wrapperStyle}>
       {/* Kartlar (koltuğun üstünde) */}
       <div className="pk-seat-cards">
-        {showFaceCards && faceCards.map((c, i) => <Card key={i} card={c} size="sm" />)}
+        {showFaceCards && faceCards.map((c, i) => (
+          <Card key={i} card={c} size="sm" highlight={isMe && !!highlightKeys?.has(cardKey(c))} />
+        ))}
         {showBacks && <><CardBack /><CardBack /></>}
         {liveRevealed && liveRevealed.map((c, i) => <MiniCard key={i} card={c} />)}
       </div>

@@ -29,6 +29,8 @@ function App() {
   const [tableState, setTableState] = useState(null);
   const [myCards, setMyCards] = useState([]);
   const [myHandRank, setMyHandRank] = useState('');
+  // Elimizdeki kombinasyonu (pair/two pair/straight...) oluşturan kartların anahtarları.
+  const [myComboCards, setMyComboCards] = useState([]);
   const [revealMessages, setRevealMessages] = useState([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState(null); // null = henüz yüklenmedi
@@ -192,8 +194,8 @@ function App() {
         if (myTurn && !wasMyTurnRef.current) playSound('turn');
         wasMyTurnRef.current = !!myTurn;
       });
-      newSocket.on('receiveCards', (data) => { setMyCards(data.cards); playSound('deal'); });
-      newSocket.on('handRankUpdate', (data) => setMyHandRank(data.rank));
+      newSocket.on('receiveCards', (data) => { setMyCards(data.cards); setMyComboCards([]); playSound('deal'); });
+      newSocket.on('handRankUpdate', (data) => { setMyHandRank(data.rank); setMyComboCards(data.comboCards || []); });
       newSocket.on('actionBroadcast', (data) => {
         addLog('action', formatAction(data.username, data.action, data.amount));
         // Her aksiyonun kendi sesi; all-in (call/raise tüm çipi götürdüyse) hepsini ezer.
@@ -241,6 +243,7 @@ function App() {
         setTableState(null);
         setMyCards([]);
         setMyHandRank('');
+        setMyComboCards([]);
         navigateRef.current?.('/lobby');
       });
 
@@ -263,6 +266,7 @@ function App() {
       setTableState(null);
       setMyCards([]);
       setMyHandRank('');
+      setMyComboCards([]);
       setRevealMessages([]);
       setActiveProposal(null);
       setVoteResult(null);
@@ -489,6 +493,7 @@ function App() {
                 tableState={tableState}
                 myCards={myCards}
                 myHandRank={myHandRank}
+                myComboCards={myComboCards}
                 myInfo={user}
                 onAction={handleAction}
                 onStartGame={handleStartGame}
