@@ -22,6 +22,13 @@ const User = sequelize.define('User', {
     isApproved: {
         type: DataTypes.BOOLEAN,
         defaultValue: false // Varsayılan olarak onaysız (admin onayı bekler)
+    },
+    avatar: {
+        // Profil fotoğrafı: istemcide küçültülüp sıkıştırılmış base64 data URL
+        // (ör. "data:image/jpeg;base64,...."). Yoksa null → baş harf avatarı gösterilir.
+        type: DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
     }
 }, {
     timestamps: true

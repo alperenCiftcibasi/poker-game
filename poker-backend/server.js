@@ -33,7 +33,9 @@ const User = require('./models/User');
 
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN }));
-app.use(express.json());
+// Limit 100kb varsayılanından yükseltildi: profil fotoğrafı base64 data URL'i
+// (istemcide küçültülmüş) bu gövdeyle gelir. Sunucu tarafı asıl sınır avatar route'unda.
+app.use(express.json({ limit: '600kb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/admin', adminRoutes);

@@ -1,10 +1,53 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SERVER_URL } from '../config';
+import Avatar from './Avatar';
 
-// Giriş yapmış kullanıcının hesap ayarları: kullanıcı adı ve şifre değiştirme.
-// Her iki işlem de şifre doğrulaması gerektirir.
-function AccountModal({ show, onClose, token, user, onAccountUpdated }) {
-  const [tab, setTab] = useState('username'); // 'username' | 'password'
+// Seçilen görseli tarayıcıda kare/küçük boyuta indirip JPEG olarak sıkıştırır.
+// Böylece DB'ye ve socket yayınına giden veri küçük kalır (maks ~256px).
+function resizeImage(file, maxSize = 256, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxSize) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else if (height > maxSize) {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('Görsel okunamadı.'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Dosya okunamadı.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Giriş yapmış kullanıcının hesap ayarları: profil fotoğrafı, kullanıcı adı ve şifre.
+// Kullanıcı adı ve şifre değişikliği şifre doğrulaması gerektirir.
+function AccountModal({ show, onClose, token, user, onAccountUpdated, onAvatarUpdated, avatarVersion }) {
+  const [tab, setTab] = useState('photo'); // 'photo' | 'username' | 'password'
+
+  // --- Profil fotoğrafı ---
+  const fileInputRef = useRef(null);
+  const [photoPreview, setPhotoPreview] = useState(null); // seçilen ama henüz yüklenmemiş görsel
+  const [hasPhoto, setHasPhoto] = useState(!!user?.hasAvatar);
+  const [photoSubmitting, setPhotoSubmitting] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const [photoSuccess, setPhotoSuccess] = useState('');
+
+  // Üst bileşen user.hasAvatar'ı güncellerse yerel durumu senkronla.
+  useEffect(() => { setHasPhoto(!!user?.hasAvatar); }, [user?.hasAvatar]);
 
   // --- Kullanıcı adı formu ---
   const [unamePassword, setUnamePassword] = useState('');
@@ -24,6 +67,10 @@ function AccountModal({ show, onClose, token, user, onAccountUpdated }) {
   if (!show) return null;
 
   const resetAll = () => {
+    setPhotoPreview(null);
+    setPhotoSubmitting(false);
+    setPhotoError('');
+    setPhotoSuccess('');
     setUnamePassword('');
     setNewUsername('');
     setUnameSubmitting(false);
@@ -35,7 +82,82 @@ function AccountModal({ show, onClose, token, user, onAccountUpdated }) {
     setPwSubmitting(false);
     setPwError('');
     setPwSuccess('');
-    setTab('username');
+    setTab('photo');
+  };
+
+  // Dosya seçilince: doğrula → tarayıcıda küçült → önizleme göster (yükleme ayrı adım).
+  const handleFileChange = async (e) => {
+    setPhotoError('');
+    setPhotoSuccess('');
+    const file = e.target.files?.[0];
+    e.target.value = ''; // aynı dosyayı tekrar seçebilmek için sıfırla
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Lütfen bir görsel dosyası seçin.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoError('Dosya çok büyük (en fazla 10MB).');
+      return;
+    }
+    try {
+      const dataUrl = await resizeImage(file);
+      setPhotoPreview(dataUrl);
+    } catch (err) {
+      setPhotoError(err.message || 'Görsel işlenemedi.');
+    }
+  };
+
+  const handlePhotoUpload = async () => {
+    if (!photoPreview) return;
+    setPhotoSubmitting(true);
+    setPhotoError('');
+    setPhotoSuccess('');
+    try {
+      const res = await fetch(`${SERVER_URL}/api/auth/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ avatar: photoPreview })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPhotoError(data.message || 'Fotoğraf yüklenemedi.');
+        return;
+      }
+      setPhotoSuccess(data.message || 'Profil fotoğrafınız güncellendi.');
+      setHasPhoto(true);
+      setPhotoPreview(null);
+      onAvatarUpdated?.(true); // App: sürüm artır + user.hasAvatar güncelle
+    } catch (err) {
+      setPhotoError('Sunucuya ulaşılamadı.');
+    } finally {
+      setPhotoSubmitting(false);
+    }
+  };
+
+  const handlePhotoRemove = async () => {
+    setPhotoSubmitting(true);
+    setPhotoError('');
+    setPhotoSuccess('');
+    try {
+      const res = await fetch(`${SERVER_URL}/api/auth/avatar`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPhotoError(data.message || 'Fotoğraf kaldırılamadı.');
+        return;
+      }
+      setPhotoSuccess(data.message || 'Profil fotoğrafınız kaldırıldı.');
+      setHasPhoto(false);
+      setPhotoPreview(null);
+      onAvatarUpdated?.(false);
+    } catch (err) {
+      setPhotoError('Sunucuya ulaşılamadı.');
+    } finally {
+      setPhotoSubmitting(false);
+    }
   };
 
   const handleClose = () => {
@@ -150,6 +272,13 @@ function AccountModal({ show, onClose, token, user, onAccountUpdated }) {
         <div className="account-tabs">
           <button
             type="button"
+            className={tab === 'photo' ? 'active' : ''}
+            onClick={() => setTab('photo')}
+          >
+            Fotoğraf
+          </button>
+          <button
+            type="button"
             className={tab === 'username' ? 'active' : ''}
             onClick={() => setTab('username')}
           >
@@ -165,7 +294,82 @@ function AccountModal({ show, onClose, token, user, onAccountUpdated }) {
         </div>
 
         <div className="account-body">
-          {tab === 'username' ? (
+          {tab === 'photo' ? (
+            <div className="account-form photo-panel">
+              <div className="avatar-preview-wrap">
+                {photoPreview ? (
+                  <img className="avatar-preview-img" src={photoPreview} alt="Önizleme" />
+                ) : (
+                  <Avatar
+                    userId={user?.id}
+                    username={user?.username}
+                    size={120}
+                    version={avatarVersion}
+                    hasAvatar={hasPhoto}
+                  />
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+
+              <p className="photo-hint">
+                JPEG, PNG, WebP veya GIF · otomatik olarak 256px'e küçültülür.
+              </p>
+
+              {photoError && <p className="acc-msg acc-error">{photoError}</p>}
+              {photoSuccess && <p className="acc-msg acc-success">✔ {photoSuccess}</p>}
+
+              <div className="acc-actions photo-actions">
+                {photoPreview ? (
+                  <>
+                    <button
+                      type="button"
+                      className="acc-cancel"
+                      onClick={() => setPhotoPreview(null)}
+                      disabled={photoSubmitting}
+                    >
+                      Vazgeç
+                    </button>
+                    <button
+                      type="button"
+                      className="acc-confirm"
+                      onClick={handlePhotoUpload}
+                      disabled={photoSubmitting}
+                    >
+                      {photoSubmitting ? 'Yükleniyor…' : 'Kaydet'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="acc-confirm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={photoSubmitting}
+                    >
+                      📷 Fotoğraf Seç
+                    </button>
+                    {hasPhoto && (
+                      <button
+                        type="button"
+                        className="acc-remove"
+                        onClick={handlePhotoRemove}
+                        disabled={photoSubmitting}
+                      >
+                        {photoSubmitting ? 'Kaldırılıyor…' : '🗑️ Kaldır'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ) : tab === 'username' ? (
             <form className="account-form" onSubmit={handleUsernameSubmit}>
               <p className="account-current">
                 Mevcut kullanıcı adı: <strong>{user?.username || '—'}</strong>
@@ -275,6 +479,14 @@ const styles = `
   .acc-confirm { background: #667eea; }
   .acc-confirm:hover { background: #576ad4; }
   .acc-confirm:disabled { background: #566573; cursor: not-allowed; opacity: 0.6; }
+  .acc-remove { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; color: #fff; background: #c0392b; transition: 0.2s; }
+  .acc-remove:hover { background: #e74c3c; }
+  .acc-remove:disabled { background: #566573; cursor: not-allowed; opacity: 0.6; }
+  .photo-panel { align-items: center; }
+  .avatar-preview-wrap { display: flex; justify-content: center; margin: 4px 0 8px; }
+  .avatar-preview-img { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; box-shadow: inset 0 0 0 2px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.4); }
+  .photo-hint { margin: 0; color: #95a5a6; font-size: 12px; text-align: center; }
+  .photo-actions { width: 100%; }
 `;
 
 if (typeof document !== 'undefined' && !document.getElementById('account-modal-styles')) {

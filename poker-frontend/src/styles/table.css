@@ -150,11 +150,12 @@
 .pk-seat-avatar-wrap.ticking { background: conic-gradient(var(--pk-green) var(--turn-deg), rgba(255,255,255,0.12) 0); }
 .pk-seat-avatar-wrap.ticking.danger { background: conic-gradient(var(--pk-red) var(--turn-deg), rgba(255,255,255,0.12) 0); }
 .pk-seat-avatar {
-  width: 100%; height: 100%; border-radius: 50%;
+  width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-weight: 800; font-size: clamp(18px, 2.4vw, 24px);
   box-shadow: inset 0 0 0 2px rgba(0,0,0,0.25);
 }
+.pk-seat-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .pk-badge {
   position: absolute; font-size: 10px; font-weight: 800; color: #1a1a1a;

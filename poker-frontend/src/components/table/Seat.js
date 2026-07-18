@@ -1,12 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, MiniCard, CardBack, cardKey } from './Card';
-
-// Kullanıcı adından tutarlı bir avatar rengi üret
-function avatarHue(name = '') {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return h;
-}
+import { avatarHue, avatarUrl } from '../Avatar';
 
 function statusBadge(player, gameState) {
   if (player.disconnected) return { text: '📴 Bağlantı koptu', cls: 'off' };
@@ -19,9 +13,15 @@ function statusBadge(player, gameState) {
 
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
-  gameState, faceCards, highlightKeys, isWinner
+  gameState, faceCards, highlightKeys, isWinner, avatarVersion
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
+
+  // Profil fotoğrafı: yüklenemezse baş harf avatarına düş.
+  const [avatarError, setAvatarError] = useState(false);
+  // Kendi koltuğumda foto değişince (avatarVersion) yeniden dene; başka oyuncu değişince
+  // koltuk id'si aynı kalır, kısa önbellek zaten yeni görseli ~1 dk içinde getirir.
+  useEffect(() => { setAvatarError(false); }, [player?.id, avatarVersion]);
 
   // Boş koltuk hayaleti
   if (!player) {
@@ -67,8 +67,21 @@ function Seat({
 
       {/* Avatar + sıra halkası */}
       <div className={`pk-seat-avatar-wrap ${isCurrentTurn ? 'ticking' : ''} ${danger ? 'danger' : ''}`} style={ringStyle}>
-        <div className="pk-seat-avatar" style={{ background: `hsl(${avatarHue(player.username)}, 45%, 42%)` }}>
-          {(player.username || '?').charAt(0).toUpperCase()}
+        <div
+          className="pk-seat-avatar"
+          style={avatarError ? { background: `hsl(${avatarHue(player.username)}, 45%, 42%)` } : undefined}
+        >
+          {avatarError ? (
+            (player.username || '?').charAt(0).toUpperCase()
+          ) : (
+            <img
+              className="pk-seat-avatar-img"
+              src={avatarUrl(player.id, isMyId ? avatarVersion : undefined)}
+              alt={player.username}
+              draggable={false}
+              onError={() => setAvatarError(true)}
+            />
+          )}
         </div>
         {player.isDealer && <span className="pk-badge dealer" title="Dealer">D</span>}
         {player.isSB && <span className="pk-badge sb" title="Small Blind">SB</span>}

@@ -27,7 +27,7 @@ const SETTING_LABELS = {
 function TablePage({
   tableState, myCards, myHandRank, myComboCards, myInfo, onAction, onStartGame, onSit, onLeave, onGoLobby,
   onRevealCards, onShowMuckDecision, revealMessages, activeProposal, voteResult,
-  onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat
+  onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat, avatarVersion
 }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -166,6 +166,7 @@ function TablePage({
                 faceCards={p && p.id === myInfo.id ? safeMyCards : (p ? p.cards : [])}
                 highlightKeys={comboSet}
                 isWinner={gameState === 'finished' && !!p && winners.includes(p.username)}
+                avatarVersion={p && p.id === myInfo.id ? avatarVersion : undefined}
               />
               {p && <BetChips position={positions[slot]} amount={p.currentBet} />}
             </React.Fragment>

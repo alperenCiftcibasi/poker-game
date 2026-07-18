@@ -99,13 +99,95 @@ router.post('/login', authLimiter, async (req, res) => {
 // 👤 MEVCUT KULLANICI (buy-in modalı için taze bakiye)
 router.get('/me', verifyToken, async (req, res) => {
     try {
+        // avatar (base64) büyük olabilir; /me sık çağrıldığı için gövdeye koymuyoruz.
+        // Yerine yalnızca hasAvatar bayrağı döner; görsel ayrı endpoint'ten çekilir.
         const user = await User.findByPk(req.user.id, {
-            attributes: ['id', 'username', 'chips', 'isAdmin']
+            attributes: ['id', 'username', 'chips', 'isAdmin', 'avatar']
         });
         if (!user) return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
-        res.status(200).json(user);
+        const plain = user.toJSON();
+        const hasAvatar = !!plain.avatar;
+        delete plain.avatar;
+        res.status(200).json({ ...plain, hasAvatar });
     } catch (error) {
         console.error('Kullanıcı bilgisi hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
+// 🖼️ PROFİL FOTOĞRAFINI GÖRÜNTÜLE (tokensiz — <img> etiketi header gönderemez).
+// Data URL olarak saklanan görseli çözüp ham baytları döner. Yoksa 404 → istemci
+// baş harf avatarına düşer. Avatarlar gizli değildir; kimlik doğrulama gerekmez.
+router.get('/avatar/:userId', async (req, res) => {
+    try {
+        const userId = Number(req.params.userId);
+        if (!Number.isInteger(userId) || userId <= 0) {
+            return res.status(400).end();
+        }
+        const user = await User.findByPk(userId, { attributes: ['avatar'] });
+        if (!user || !user.avatar) return res.status(404).end();
+
+        // "data:image/jpeg;base64,AAAA..." → mime + base64
+        const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(user.avatar);
+        if (!match) return res.status(404).end();
+        const mime = match[1];
+        const buffer = Buffer.from(match[2], 'base64');
+
+        res.set('Content-Type', mime);
+        // Kısa önbellek: bir kullanıcı fotoğrafını değiştirince diğer istemciler ~1 dk
+        // içinde yeni görseli çeker. Sahibi kendi görünümünü ?v= ile anında tazeler.
+        res.set('Cache-Control', 'public, max-age=60');
+        res.send(buffer);
+    } catch (error) {
+        console.error('Avatar getirme hatası:', error);
+        res.status(500).end();
+    }
+});
+
+// 📤 PROFİL FOTOĞRAFI YÜKLE / GÜNCELLE (giriş yapmış kullanıcı)
+// Gövde: { avatar: "data:image/...;base64,..." } — istemcide 256px'e küçültülüp sıkıştırılmış.
+router.post('/avatar', verifyToken, async (req, res) => {
+    try {
+        const { avatar } = req.body;
+        if (!avatar || typeof avatar !== 'string') {
+            return res.status(400).json({ message: 'Geçerli bir görsel gönderilmedi.' });
+        }
+
+        // Biçim doğrulaması: yalnızca base64 image data URL kabul edilir.
+        const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/.exec(avatar);
+        if (!match) {
+            return res.status(400).json({ message: 'Yalnızca JPEG/PNG/WebP/GIF görseller kabul edilir.' });
+        }
+
+        // Boyut sınırı: base64 metni ~400KB'ı geçmesin (yaklaşık 300KB görsel).
+        // İstemci zaten küçültüyor; bu sunucu tarafı güvenlik sınırı.
+        if (avatar.length > 400_000) {
+            return res.status(413).json({ message: 'Görsel çok büyük. Lütfen daha küçük bir fotoğraf seçin.' });
+        }
+
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+
+        user.avatar = avatar;
+        await user.save();
+
+        res.status(200).json({ message: 'Profil fotoğrafınız güncellendi.' });
+    } catch (error) {
+        console.error('Avatar yükleme hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
+// 🗑️ PROFİL FOTOĞRAFINI KALDIR
+router.delete('/avatar', verifyToken, async (req, res) => {
+    try {
+        const user = await User.findByPk(req.user.id);
+        if (!user) return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        user.avatar = null;
+        await user.save();
+        res.status(200).json({ message: 'Profil fotoğrafınız kaldırıldı.' });
+    } catch (error) {
+        console.error('Avatar kaldırma hatası:', error);
         res.status(500).json({ message: 'Sunucu hatası oluştu.' });
     }
 });

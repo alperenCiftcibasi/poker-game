@@ -1,4 +1,5 @@
 import React from 'react';
+import Avatar from './Avatar';
 
 function LeaderboardModal({ show, onClose, leaderboardData }) {
   if (!show) return null;
@@ -34,7 +35,12 @@ function LeaderboardModal({ show, onClose, leaderboardData }) {
                       {index === 2 && '🥉'}
                       {index > 2 && `${index + 1}.`}
                     </td>
-                    <td className="player-cell">{player.username}</td>
+                    <td className="player-cell">
+                      <span className="player-cell-inner">
+                        <Avatar userId={player.id} username={player.username} size={32} />
+                        {player.username}
+                      </span>
+                    </td>
                     <td className="chips-cell">{player.chips} 🍪</td>
                   </tr>
                 ))}
@@ -186,6 +192,12 @@ const styles = `
 
   .player-cell {
     font-weight: 500;
+  }
+
+  .player-cell-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .chips-cell {

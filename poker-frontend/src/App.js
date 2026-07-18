@@ -10,6 +10,7 @@ import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
 import AccountModal from './components/AccountModal';
+import Avatar from './components/Avatar';
 import { SERVER_URL } from './config';
 import { playSound, isMuted, toggleMute } from './utils/sounds';
 
@@ -37,6 +38,8 @@ function App() {
   const [leaderboardData, setLeaderboardData] = useState(null); // null = henüz yüklenmedi
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  // Profil fotoğrafı önbellek-kırma sürümü: değişince kendi avatarımız her yerde tazelenir.
+  const [avatarVersion, setAvatarVersion] = useState(() => Number(localStorage.getItem('poker_avatar_v')) || 1);
   const [activeProposal, setActiveProposal] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
   const [showBuyInModal, setShowBuyInModal] = useState(false);
@@ -335,6 +338,22 @@ function App() {
     }
   };
 
+  // Profil fotoğrafı güncellendi/kaldırıldı: sürümü artır (kendi avatarımız her yerde
+  // yeniden çekilir) ve user.hasAvatar'ı senkronla; localStorage'a da yaz.
+  const handleAvatarUpdated = (hasNow) => {
+    setAvatarVersion((v) => {
+      const next = v + 1;
+      localStorage.setItem('poker_avatar_v', String(next));
+      return next;
+    });
+    setUser((prev) => {
+      if (!prev) return prev;
+      const merged = { ...prev, hasAvatar: !!hasNow };
+      localStorage.setItem('poker_user', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
   // Masaya oturmadan önce buy-in modalını aç ve taze bakiyeyi getir
   const handleOpenBuyIn = async () => {
     if (!socket || !tableState) return;
@@ -478,7 +497,15 @@ function App() {
             className="account-button"
             title="Hesap Ayarları"
           >
-            👤
+            {user?.id ? (
+              <Avatar
+                userId={user.id}
+                username={user.username}
+                size={40}
+                version={avatarVersion}
+                hasAvatar={user.hasAvatar}
+              />
+            ) : '👤'}
           </button>
           {user?.isAdmin && (
             <button onClick={handleOpenAdminPanel} className="admin-button" title="Admin Paneli">
@@ -516,6 +543,8 @@ function App() {
         token={token}
         user={user}
         onAccountUpdated={handleAccountUpdated}
+        onAvatarUpdated={handleAvatarUpdated}
+        avatarVersion={avatarVersion}
       />
 
       <Routes>
@@ -544,6 +573,7 @@ function App() {
                 gameLog={gameLog}
                 chatMessages={chatMessages}
                 onSendChat={handleSendChat}
+                avatarVersion={avatarVersion}
               />
             ) : <div>Yönlendiriliyor...</div>
         }/>
