@@ -25,16 +25,17 @@
   gap: 10px;
   align-items: start;
 }
-.pk-table-page.side-open {
-  grid-template-columns: 1fr 300px;
-  grid-template-areas: "stage side" "bottom side";
-}
+/* Sohbet/log açılınca masa yerinden oynamasın diye grid'i DEĞİŞTİRMİYORUZ.
+   Yan panel sağ kenara oturan sabit (fixed) bir overlay olur ve butonların /
+   aksiyon çubuğunun ÜSTÜNDE (yüksek z-index) durur; masa sabit kalır. */
 .pk-stage-wrap { grid-area: stage; }
 .pk-bottom { grid-area: bottom; }
 .pk-side {
   grid-area: side;
+  position: fixed; top: 16px; right: 16px;
+  width: 320px; z-index: 60;
   display: flex; flex-direction: column; gap: 12px;
-  min-height: 0; max-height: calc(100vh - 32px); position: sticky; top: 16px;
+  min-height: 0; max-height: calc(100vh - 32px);
 }
 
 .pk-table-head {
@@ -365,7 +366,8 @@
 /* ============ Responsive ============ */
 @media (max-width: 900px) {
   .pk-table-page.side-open { grid-template-columns: 1fr; grid-template-areas: "stage" "bottom" "side"; }
-  .pk-side { position: static; max-height: none; }
+  /* Mobilde overlay yerine akışta, masanın altında yığılsın */
+  .pk-side { position: static; width: auto; top: auto; right: auto; z-index: auto; max-height: none; }
   .pk-log { max-height: 220px; }
   .pk-chat { max-height: 320px; }
   /* Mobilde dikey kaydırma normal: viewport-yükseklik sınırını kaldır, tam genişlik */
