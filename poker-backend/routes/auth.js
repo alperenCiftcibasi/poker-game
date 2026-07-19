@@ -102,7 +102,7 @@ router.get('/me', verifyToken, async (req, res) => {
         // avatar (base64) büyük olabilir; /me sık çağrıldığı için gövdeye koymuyoruz.
         // Yerine yalnızca hasAvatar bayrağı döner; görsel ayrı endpoint'ten çekilir.
         const user = await User.findByPk(req.user.id, {
-            attributes: ['id', 'username', 'chips', 'isAdmin', 'avatar']
+            attributes: ['id', 'username', 'chips', 'tournamentChips', 'isAdmin', 'avatar']
         });
         if (!user) return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
         const plain = user.toJSON();
@@ -295,7 +295,7 @@ router.post('/change-password', authLimiter, verifyToken, async (req, res) => {
     }
 });
 
-// 🏆 LEADERBOARD (En Zengin Oyuncular)
+// 🏆 LEADERBOARD (En Zengin Oyuncular — normal çip)
 router.get('/leaderboard', verifyToken, async (req, res) => {
     try {
         const users = await User.findAll({
@@ -306,6 +306,21 @@ router.get('/leaderboard', verifyToken, async (req, res) => {
         res.status(200).json(users);
     } catch (error) {
         console.error('Leaderboard Hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
+// 🏅 TURNUVA LEADERBOARD (En Çok Turnuva Çipine Sahip Oyuncular)
+router.get('/leaderboard/tournament', verifyToken, async (req, res) => {
+    try {
+        const users = await User.findAll({
+            attributes: ['id', 'username', 'tournamentChips'],
+            order: [['tournamentChips', 'DESC']],
+            limit: 20
+        });
+        res.status(200).json(users);
+    } catch (error) {
+        console.error('Turnuva Leaderboard Hatası:', error);
         res.status(500).json({ message: 'Sunucu hatası oluştu.' });
     }
 });

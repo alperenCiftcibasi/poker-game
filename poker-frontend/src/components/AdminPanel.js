@@ -70,6 +70,42 @@ function AdminPanel({ show, onClose, token }) {
     }
   };
 
+  const handleUpdateTournamentChips = async (userId, username) => {
+    const amount = prompt(`${username} için turnuva çipi miktarı girin:\n(Eklemek için pozitif, çıkarmak için negatif sayı)`);
+
+    if (amount === null) return; // İptal
+
+    const chipAmount = parseInt(amount);
+    if (isNaN(chipAmount)) {
+      alert('Geçerli bir sayı girin!');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${SERVER_URL}/api/admin/update-tournament-chips`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId, amount: chipAmount })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || 'İşlem başarısız');
+        return;
+      }
+
+      alert(data.message);
+      loadUsers(); // Listeyi yenile
+    } catch (error) {
+      console.error('Turnuva çipi güncelleme hatası:', error);
+      alert('İşlem sırasında bir hata oluştu.');
+    }
+  };
+
   const handleToggleAdmin = async (userId, username, currentStatus) => {
     const action = currentStatus ? 'kaldırmak' : 'vermek';
     if (!window.confirm(`${username} kullanıcısına admin yetkisi ${action} istediğinize emin misiniz?`)) {
@@ -178,6 +214,7 @@ function AdminPanel({ show, onClose, token }) {
                   <th>ID</th>
                   <th>Kullanıcı Adı</th>
                   <th>Chip</th>
+                  <th>Turnuva Çipi</th>
                   <th>Rol</th>
                   <th>Durum</th>
                   <th>İşlemler</th>
@@ -189,6 +226,7 @@ function AdminPanel({ show, onClose, token }) {
                     <td>{user.id}</td>
                     <td className="username-cell">{user.username}</td>
                     <td className="chips-cell">{user.chips} 🍪</td>
+                    <td className="tournament-chips-cell">{user.tournamentChips ?? 0} 💎</td>
                     <td className="role-cell">
                       {user.isAdmin ? <span className="admin-badge">ADMIN</span> : <span className="user-badge">USER</span>}
                     </td>
@@ -218,12 +256,19 @@ function AdminPanel({ show, onClose, token }) {
                           </button>
                         </>
                       )}
-                      <button 
-                        className="btn-admin btn-chips" 
+                      <button
+                        className="btn-admin btn-chips"
                         onClick={() => handleUpdateChips(user.id, user.username)}
                         title="Chip Ekle/Çıkar"
                       >
                         💰
+                      </button>
+                      <button
+                        className="btn-admin btn-tournament-chips"
+                        onClick={() => handleUpdateTournamentChips(user.id, user.username)}
+                        title="Turnuva Çipi Ekle/Çıkar"
+                      >
+                        💎
                       </button>
                       <button 
                         className="btn-admin btn-toggle-admin" 
@@ -321,6 +366,11 @@ const styles = `
     color: #f1c40f;
   }
 
+  .tournament-chips-cell {
+    font-weight: bold;
+    color: #bb8fce;
+  }
+
   .role-cell {
     text-align: center;
   }
@@ -395,6 +445,10 @@ const styles = `
 
   .btn-chips:hover {
     background: #27ae60;
+  }
+
+  .btn-tournament-chips:hover {
+    background: #8e44ad;
   }
 
   .btn-toggle-admin:hover {

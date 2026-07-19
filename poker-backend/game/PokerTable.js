@@ -46,6 +46,9 @@ class PokerTable {
         this.minBuyIn = 0;
         this.maxBuyIn = 0;
 
+        // Para birimi türü ('normal' | 'tournament'). DB'den getOrCreateTable içinde set edilir.
+        this.type = 'normal';
+
         // Oylama state'i
         this.activeProposal = null;
 
@@ -797,7 +800,8 @@ class PokerTable {
                 bigBlind: this.bigBlind,
                 minBuyIn: this.minBuyIn,
                 maxBuyIn: this.maxBuyIn,
-                turnTimerDuration: this.turnTimerDuration
+                turnTimerDuration: this.turnTimerDuration,
+                type: this.type // 'normal' | 'tournament' → istemci doğru çip ikonunu gösterir
             },
             activeProposal: this.getProposalState(),
             players: this.players.map((p, i) => ({

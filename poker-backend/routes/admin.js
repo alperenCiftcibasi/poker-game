@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/users', verifyAdmin, async (req, res) => {
     try {
         const users = await User.findAll({
-            attributes: ['id', 'username', 'chips', 'isAdmin', 'isApproved', 'createdAt'],
+            attributes: ['id', 'username', 'chips', 'tournamentChips', 'isAdmin', 'isApproved', 'createdAt'],
             order: [['createdAt', 'DESC']]
         });
         res.status(200).json(users);
@@ -54,6 +54,46 @@ router.post('/update-chips', verifyAdmin, async (req, res) => {
         });
     } catch (error) {
         console.error('Chip Güncelleme Hatası:', error);
+        res.status(500).json({ message: 'Sunucu hatası oluştu.' });
+    }
+});
+
+// 💎 TURNUVA ÇİPİ EKLE/ÇIKAR (Sadece Admin)
+router.post('/update-tournament-chips', verifyAdmin, async (req, res) => {
+    try {
+        const { userId, amount } = req.body;
+
+        if (!userId || amount === undefined) {
+            return res.status(400).json({ message: 'Kullanıcı ID ve miktar gereklidir.' });
+        }
+
+        const user = await User.findByPk(userId);
+
+        if (!user) {
+            return res.status(404).json({ message: 'Kullanıcı bulunamadı.' });
+        }
+
+        // Yeni turnuva çipi miktarını hesapla
+        const newChips = (user.tournamentChips || 0) + amount;
+
+        // Negatife düşmesini engelle
+        if (newChips < 0) {
+            return res.status(400).json({ message: 'Turnuva çipi miktarı negatif olamaz.' });
+        }
+
+        user.tournamentChips = newChips;
+        await user.save();
+
+        res.status(200).json({
+            message: `${user.username} kullanıcısının turnuva çipi güncellendi.`,
+            user: {
+                id: user.id,
+                username: user.username,
+                tournamentChips: user.tournamentChips
+            }
+        });
+    } catch (error) {
+        console.error('Turnuva Çipi Güncelleme Hatası:', error);
         res.status(500).json({ message: 'Sunucu hatası oluştu.' });
     }
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SERVER_URL } from '../config';
+import { chipIcon } from '../utils/currency';
 
 // Oyun durumunu Türkçe rozet metnine çevir
 function stateBadge(gameState) {
@@ -16,7 +17,8 @@ const EMPTY_FORM = {
   smallBlind: 10,
   bigBlind: 20,
   minBuyIn: 400,
-  maxBuyIn: 2000
+  maxBuyIn: 2000,
+  type: 'normal' // 'normal' | 'tournament'
 };
 
 function LobbyPage({ socket, isConnected, token, user }) {
@@ -84,7 +86,8 @@ function LobbyPage({ socket, isConnected, token, user }) {
           smallBlind: sb,
           bigBlind: bb,
           minBuyIn: minB,
-          maxBuyIn: maxB
+          maxBuyIn: maxB,
+          type: form.type
         })
       });
       const data = await res.json();
@@ -166,6 +169,13 @@ function LobbyPage({ socket, isConnected, token, user }) {
                 <option value={9}>9</option>
               </select>
             </label>
+            <label>
+              Masa Türü
+              <select value={form.type} onChange={e => handleFormChange('type', e.target.value)}>
+                <option value="normal">🍪 Normal (oyun çipi)</option>
+                <option value="tournament">💎 Turnuva (turnuva çipi)</option>
+              </select>
+            </label>
           </div>
           <div className="form-row">
             <label>
@@ -209,15 +219,20 @@ function LobbyPage({ socket, isConnected, token, user }) {
           {tables.map(t => {
             const badge = stateBadge(t.gameState);
             const full = t.playerCount >= t.maxPlayers;
+            const isTournament = t.type === 'tournament';
+            const icon = chipIcon(t.type);
             return (
-              <div key={t.id} className="lobby-card">
+              <div key={t.id} className={`lobby-card${isTournament ? ' tournament' : ''}`}>
                 <div className="lobby-card-top">
                   <h3>{t.name}</h3>
-                  <span className={badge.className}>{badge.label}</span>
+                  <div className="lobby-card-badges">
+                    {isTournament && <span className="lobby-badge tournament">💎 Turnuva</span>}
+                    <span className={badge.className}>{badge.label}</span>
+                  </div>
                 </div>
                 <div className="lobby-card-info">
                   <div><span className="k">Blindlar</span><span className="v">{t.smallBlind} / {t.bigBlind}</span></div>
-                  <div><span className="k">Buy-in</span><span className="v">{t.minBuyIn} - {t.maxBuyIn > 0 ? t.maxBuyIn : '∞'}</span></div>
+                  <div><span className="k">Buy-in</span><span className="v">{t.minBuyIn} - {t.maxBuyIn > 0 ? t.maxBuyIn : '∞'} {icon}</span></div>
                   <div><span className="k">Oyuncu</span><span className="v">{t.playerCount} / {t.maxPlayers}</span></div>
                 </div>
                 <div className="lobby-card-actions">
@@ -278,6 +293,10 @@ const styles = `
   .lobby-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; color: #fff; }
   .lobby-badge.waiting { background: #7f8c8d; }
   .lobby-badge.playing { background: #27ae60; }
+  .lobby-badge.tournament { background: linear-gradient(135deg, #8e44ad 0%, #5b2c83 100%); }
+  .lobby-card-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .lobby-card.tournament { border-color: #8e44ad; box-shadow: 0 4px 12px rgba(142, 68, 173, 0.25); }
+  .lobby-card.tournament:hover { box-shadow: 0 8px 18px rgba(142, 68, 173, 0.4); }
   .lobby-card-info { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
   .lobby-card-info > div { display: flex; justify-content: space-between; font-size: 14px; }
   .lobby-card-info .k { color: #95a5a6; }

@@ -13,7 +13,7 @@ function statusBadge(player, gameState) {
 
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
-  gameState, faceCards, highlightKeys, isWinner, avatarVersion
+  gameState, faceCards, highlightKeys, isWinner, avatarVersion, chipIcon = '🍪'
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
 
@@ -91,7 +91,7 @@ function Seat({
       {/* İsim + stack */}
       <div className="pk-seat-plate">
         <div className="pk-seat-name">{player.username}{isMyId ? ' (Siz)' : ''}</div>
-        <div className="pk-seat-stack">{player.chips} 🍪</div>
+        <div className="pk-seat-stack">{player.chips} {chipIcon}</div>
         {badge && <div className={`pk-seat-status ${badge.cls}`}>{badge.text}</div>}
         {isCurrentTurn && <div className={`pk-seat-timer ${danger ? 'danger' : ''}`}>⏳ {timeLeft}s</div>}
       </div>

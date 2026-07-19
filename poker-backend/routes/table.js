@@ -11,7 +11,7 @@ const router = express.Router();
 // 🟢 YENİ MASA OLUŞTUR (Sadece admin)
 router.post('/create', verifyAdmin, async (req, res) => {
     try {
-        const { name, maxPlayers, smallBlind, bigBlind, minBuyIn, maxBuyIn } = req.body;
+        const { name, maxPlayers, smallBlind, bigBlind, minBuyIn, maxBuyIn, type } = req.body;
 
         // Mantık kontrolleri (Opsiyonel ama hayat kurtarır)
         // maxBuyIn === 0 → sınırsız (server.js joinTable ile tutarlı), bu durumda min>max kontrolü atlanır.
@@ -22,6 +22,9 @@ router.post('/create', verifyAdmin, async (req, res) => {
             return res.status(400).json({ message: 'Small Blind, Big Blind\'dan küçük olmalıdır!' });
         }
 
+        // Para birimi türü: yalnızca 'normal' veya 'tournament'; geçersizse 'normal'.
+        const tableType = type === 'tournament' ? 'tournament' : 'normal';
+
         // Masayı veritabanına kaydet
         const newTable = await Table.create({
             name,
@@ -29,7 +32,8 @@ router.post('/create', verifyAdmin, async (req, res) => {
             smallBlind,
             bigBlind,
             minBuyIn,
-            maxBuyIn
+            maxBuyIn,
+            type: tableType
         });
 
         res.status(201).json({
@@ -63,9 +67,11 @@ router.delete('/:id', verifyAdmin, async (req, res) => {
 
         if (live) {
             // 1) Oturan oyuncuların çiplerini kasalarına iade et (para kaybı olmasın).
+            //    İade masanın para birimi sütununa yapılır (turnuva masası → tournamentChips).
+            const refundCol = dbTable.type === 'tournament' ? 'tournamentChips' : 'chips';
             await Promise.all(live.players.map(player =>
                 User.update(
-                    { chips: (player.bankChips || 0) + player.chips },
+                    { [refundCol]: (player.bankChips || 0) + player.chips },
                     { where: { id: player.id } }
                 )
             ));

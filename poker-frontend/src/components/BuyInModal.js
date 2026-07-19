@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { chipIcon } from '../utils/currency';
 
 // Masaya oturmadan önce buy-in miktarını seçtiren modal.
 // bank: kullanıcının toplam bakiyesi (kasa + masa). null iken yükleniyor.
@@ -7,6 +8,7 @@ function BuyInModal({ show, onClose, onConfirm, bank, settings, tableName }) {
   const maxBuyIn = settings?.maxBuyIn || 0;
   const bigBlind = settings?.bigBlind || 0;
   const smallBlind = settings?.smallBlind || 0;
+  const icon = chipIcon(settings?.type); // turnuva masası → 💎, normal → 🍪
 
   // Sunucudaki doğrulamayla aynı sınırlar (min = minBuyIn>0 ? minBuyIn : 1)
   const bounds = useMemo(() => {
@@ -51,14 +53,14 @@ function BuyInModal({ show, onClose, onConfirm, bank, settings, tableName }) {
             <div className="buyin-insufficient">
               <p>Bu masaya oturmak için yeterli bakiyeniz yok.</p>
               <p className="buyin-detail">
-                Gereken minimum: <strong>{bounds.lower}</strong> · Kasanız: <strong>{bank}</strong> 🍪
+                Gereken minimum: <strong>{bounds.lower}</strong> · Kasanız: <strong>{bank}</strong> {icon}
               </p>
             </div>
           ) : (
             <>
               <div className="buyin-info-row">
                 <span>Kasanız</span>
-                <strong>{bank} 🍪</strong>
+                <strong>{bank} {icon}</strong>
               </div>
               <div className="buyin-info-row">
                 <span>Blindlar</span>
@@ -69,7 +71,7 @@ function BuyInModal({ show, onClose, onConfirm, bank, settings, tableName }) {
                 <strong>{bounds.lower} – {bounds.upper}</strong>
               </div>
 
-              <div className="buyin-amount">{value} 🍪</div>
+              <div className="buyin-amount">{value} {icon}</div>
 
               <input
                 type="range"
@@ -107,7 +109,7 @@ function BuyInModal({ show, onClose, onConfirm, bank, settings, tableName }) {
             disabled={bank == null || !bounds?.canSit}
             onClick={handleConfirm}
           >
-            Otur ({bounds?.canSit ? clamp(Math.round(value)) : 0} 🍪)
+            Otur ({bounds?.canSit ? clamp(Math.round(value)) : 0} {icon})
           </button>
         </div>
       </div>

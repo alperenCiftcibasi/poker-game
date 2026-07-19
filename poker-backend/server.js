@@ -72,11 +72,18 @@ const io = new Server(server, { cors: { origin: CORS_ORIGIN, methods: ["GET", "P
 // HTTP route'lar (ör. masa silme) io'ya req.app.get('io') ile erişir.
 app.set('io', io);
 
-// DB invariant'ı: User.chips = kasa + masa. Her persist yolunda bankChips + chips yazılır.
+// Masanın para birimi hangi DB sütununa yazılır: turnuva masası → tournamentChips, aksi → chips.
+// (Bir kullanıcı global olarak tek masada oturabildiği için aynı anda tek para birimi bölünür;
+//  iki para biriminin bank+masa invariant'ı çakışmaz.)
+const chipCol = (table) => (table && table.type === 'tournament') ? 'tournamentChips' : 'chips';
+
+// DB invariant'ı: bakiye = kasa + masa. Her persist yolunda bankChips + chips, masanın
+// para birimi sütununa yazılır.
 async function saveTableToDB(table) {
     try {
+        const col = chipCol(table);
         const promises = table.players.map(player =>
-            User.update({ chips: (player.bankChips || 0) + player.chips }, { where: { id: player.id } })
+            User.update({ [col]: (player.bankChips || 0) + player.chips }, { where: { id: player.id } })
         );
         await Promise.all(promises);
     } catch (error) { console.error('Kaydedilemedi:', error); }
@@ -119,6 +126,7 @@ async function getOrCreateTable(tableId) {
 
         pokerTable.minBuyIn = dbTable.minBuyIn || 0;
         pokerTable.maxBuyIn = dbTable.maxBuyIn || 0;
+        pokerTable.type = dbTable.type || 'normal';
 
         activeTables.set(tableId, pokerTable);
     }
@@ -231,7 +239,8 @@ io.on('connection', (socket) => {
         const dbUser = await User.findByPk(socket.user.id);
         if (!dbUser) return socket.emit('error', 'Kullanıcı bulunamadı!');
 
-        const bank = dbUser.chips;
+        // Turnuva masasında turnuva çipi (tournamentChips), normal masada normal çip (chips) kullanılır.
+        const bank = table.type === 'tournament' ? dbUser.tournamentChips : dbUser.chips;
         const amount = Number(buyIn);
         const min = table.minBuyIn > 0 ? table.minBuyIn : 1;
         const max = table.maxBuyIn > 0 ? table.maxBuyIn : bank;
@@ -436,9 +445,9 @@ io.on('connection', (socket) => {
         //  kapanması canlı oyuncuyu düşürmemelidir.)
         if (leavingPlayer.socketId !== socket.id) return;
 
-        // Chip'leri kaydet (kasa + masa)
+        // Chip'leri kaydet (kasa + masa) — masanın para birimi sütununa.
         await User.update(
-            { chips: (leavingPlayer.bankChips || 0) + leavingPlayer.chips },
+            { [chipCol(table)]: (leavingPlayer.bankChips || 0) + leavingPlayer.chips },
             { where: { id: leavingPlayer.id } }
         );
 

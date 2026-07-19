@@ -36,6 +36,8 @@ function App() {
   const [revealMessages, setRevealMessages] = useState([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboardData, setLeaderboardData] = useState(null); // null = henüz yüklenmedi
+  const [showTournamentLeaderboard, setShowTournamentLeaderboard] = useState(false);
+  const [tournamentLeaderboardData, setTournamentLeaderboardData] = useState(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
   // Profil fotoğrafı önbellek-kırma sürümü: değişince kendi avatarımız her yerde tazelenir.
@@ -363,14 +365,17 @@ function App() {
       const res = await fetch(`${SERVER_URL}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      const isTournament = tableState?.settings?.type === 'tournament';
       if (res.ok) {
         const data = await res.json();
-        setBuyInBank(data.chips);
+        // Turnuva masasında turnuva çipi bakiyesini, normal masada normal çip bakiyesini göster.
+        setBuyInBank(isTournament ? (data.tournamentChips ?? 0) : data.chips);
       } else {
-        setBuyInBank(user?.chips ?? 0);
+        setBuyInBank(isTournament ? 0 : (user?.chips ?? 0));
       }
     } catch (error) {
-      setBuyInBank(user?.chips ?? 0);
+      const isTournament = tableState?.settings?.type === 'tournament';
+      setBuyInBank(isTournament ? 0 : (user?.chips ?? 0));
     }
   };
 
@@ -463,6 +468,35 @@ function App() {
     setLeaderboardData(null);
   };
 
+  const handleOpenTournamentLeaderboard = async () => {
+    setShowTournamentLeaderboard(true);
+    setTournamentLeaderboardData(null); // yükleniyor durumuna al
+    try {
+      const res = await fetch(`${SERVER_URL}/api/auth/leaderboard/tournament`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: 'Bilinmeyen hata' }));
+        alert(`Turnuva lider tablosu yüklenemedi: ${errorData.message || res.statusText}`);
+        setTournamentLeaderboardData([]);
+        return;
+      }
+
+      const data = await res.json();
+      setTournamentLeaderboardData(data);
+    } catch (error) {
+      console.error('Turnuva lider tablosu yüklenemedi:', error);
+      alert('Turnuva lider tablosu yüklenirken bir hata oluştu.');
+      setTournamentLeaderboardData([]);
+    }
+  };
+
+  const handleCloseTournamentLeaderboard = () => {
+    setShowTournamentLeaderboard(false);
+    setTournamentLeaderboardData(null);
+  };
+
   const handleOpenAdminPanel = () => {
     setShowAdminPanel(true);
   };
@@ -484,6 +518,9 @@ function App() {
         <>
           <button onClick={handleOpenLeaderboard} className="leaderboard-button" title="Lider Tablosu">
             🏆
+          </button>
+          <button onClick={handleOpenTournamentLeaderboard} className="tournament-leaderboard-button" title="Turnuva Lider Tablosu">
+            🏅
           </button>
           <button
             onClick={() => setMuted(toggleMute())}
@@ -516,12 +553,21 @@ function App() {
         </>
       )}
       
-      <LeaderboardModal 
-        show={showLeaderboard} 
-        onClose={handleCloseLeaderboard} 
+      <LeaderboardModal
+        show={showLeaderboard}
+        onClose={handleCloseLeaderboard}
         leaderboardData={leaderboardData}
       />
-      
+
+      <LeaderboardModal
+        show={showTournamentLeaderboard}
+        onClose={handleCloseTournamentLeaderboard}
+        leaderboardData={tournamentLeaderboardData}
+        title="🏅 Turnuva Lider Tablosu"
+        chipField="tournamentChips"
+        icon="💎"
+      />
+
       <AdminPanel
         show={showAdminPanel}
         onClose={handleCloseAdminPanel}

@@ -35,6 +35,7 @@ function defineModels(sequelize) {
         username: { type: DataTypes.STRING, allowNull: false, unique: true },
         password: { type: DataTypes.STRING, allowNull: false },
         chips: { type: DataTypes.INTEGER, defaultValue: 3000 },
+        tournamentChips: { type: DataTypes.INTEGER, defaultValue: 0 },
         isAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
         isApproved: { type: DataTypes.BOOLEAN, defaultValue: false },
     }, { timestamps: true });
@@ -47,6 +48,7 @@ function defineModels(sequelize) {
         minBuyIn: { type: DataTypes.INTEGER, allowNull: false },
         maxBuyIn: { type: DataTypes.INTEGER, allowNull: false },
         status: { type: DataTypes.STRING, defaultValue: 'waiting' },
+        type: { type: DataTypes.STRING, defaultValue: 'normal' },
     }, { timestamps: true });
 
     return { User, Table };

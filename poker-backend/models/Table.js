@@ -30,6 +30,12 @@ const Table = sequelize.define('Table', {
     status: {
         type: DataTypes.STRING,
         defaultValue: 'waiting' // waiting (bekliyor), playing (oynanıyor)
+    },
+    type: {
+        // Masanın para birimi türü: 'normal' → User.chips, 'tournament' → User.tournamentChips.
+        // Oyun mekaniği ikisinde de aynı; yalnızca hangi bakiyeyle oynandığını belirler.
+        type: DataTypes.STRING,
+        defaultValue: 'normal' // 'normal' | 'tournament'
     }
 }, {
     timestamps: true

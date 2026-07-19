@@ -15,6 +15,7 @@ import ChatPanel from './table/ChatPanel';
 import HandBanners from './table/HandBanners';
 import SettingsPanel from './table/SettingsPanel';
 import { getSeatPositions, assignSeats } from './table/seatLayout';
+import { chipIcon } from '../utils/currency';
 
 const SETTING_LABELS = {
   smallBlind: 'Small Blind',
@@ -52,6 +53,7 @@ function TablePage({
   const isCombo = (c) => comboSet.has(cardKey(c));
   const settings = tableState?.settings || {};
   const maxPlayers = tableState?.maxPlayers || Math.max(2, players.length);
+  const chipEmoji = chipIcon(settings.type); // turnuva masası → 💎, normal → 🍪
 
   // Oyuncu durumu
   const myPlayer = players.find(p => p.id === myInfo?.id);
@@ -146,7 +148,7 @@ function TablePage({
         <div className="pk-table-stage">
           <TableFelt>
             <div className="pk-center">
-              <PotDisplay pot={pot} />
+              <PotDisplay pot={pot} chipIcon={chipEmoji} />
               <CommunityCards cards={communityCards} highlightKeys={comboSet} />
             </div>
           </TableFelt>
@@ -167,6 +169,7 @@ function TablePage({
                 highlightKeys={comboSet}
                 isWinner={gameState === 'finished' && !!p && winners.includes(p.username)}
                 avatarVersion={p && p.id === myInfo.id ? avatarVersion : undefined}
+                chipIcon={chipEmoji}
               />
               {p && <BetChips position={positions[slot]} amount={p.currentBet} />}
             </React.Fragment>

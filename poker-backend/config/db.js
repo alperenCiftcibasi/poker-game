@@ -52,6 +52,32 @@ const connectDB = async () => {
             console.warn('⚠️  avatar sütunu kontrolü atlandı:', e.message);
         }
 
+        // Turnuva çipi para birimi için şema koruması. Avatar guard'ıyla aynı mantık:
+        // production'da plain sync() var olan tabloya sütun eklemez; bu guard idempotenttir.
+        try {
+            const qi = sequelize.getQueryInterface();
+            const usersTable = await qi.describeTable('Users');
+            if (!usersTable.tournamentChips) {
+                await qi.addColumn('Users', 'tournamentChips', {
+                    type: Sequelize.DataTypes.INTEGER,
+                    allowNull: false,
+                    defaultValue: 0
+                });
+                console.log('🛠️  Users.tournamentChips sütunu eklendi.');
+            }
+            const tablesTable = await qi.describeTable('Tables');
+            if (!tablesTable.type) {
+                await qi.addColumn('Tables', 'type', {
+                    type: Sequelize.DataTypes.STRING,
+                    allowNull: false,
+                    defaultValue: 'normal'
+                });
+                console.log('🛠️  Tables.type sütunu eklendi.');
+            }
+        } catch (e) {
+            console.warn('⚠️  turnuva çipi sütun kontrolü atlandı:', e.message);
+        }
+
         // NOT: Eskiden burada her boot'ta `UPDATE Users SET isApproved = 1 ...`
         // çalışıyordu; bu admin onay sistemini deldiği için kaldırıldı (B14).
     } catch (error) {

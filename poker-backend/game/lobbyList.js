@@ -21,6 +21,7 @@ async function buildLobbyList() {
             minBuyIn: t.minBuyIn,
             maxBuyIn: t.maxBuyIn,
             maxPlayers: t.maxPlayers,
+            type: t.type || 'normal',
             playerCount: live ? live.players.length : 0,
             gameState: live ? live.gameState : 'waiting'
         };

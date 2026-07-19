@@ -15,6 +15,12 @@ const User = sequelize.define('User', {
         type: DataTypes.INTEGER,
         defaultValue: 3000 // İlk kayıtta 3000 çip verilir
     },
+    tournamentChips: {
+        // Normal çipten bağımsız ikinci para birimi: yalnızca turnuva masalarında oynanır.
+        // Kayıtta 0 başlar; yalnızca admin ekler/çıkarır. Gece cron'u bu alana DOKUNMAZ.
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
     isAdmin: {
         type: DataTypes.BOOLEAN,
         defaultValue: false // Varsayılan olarak admin değil

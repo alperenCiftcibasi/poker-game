@@ -1,17 +1,26 @@
 import React from 'react';
 import Avatar from './Avatar';
 
-function LeaderboardModal({ show, onClose, leaderboardData }) {
+// Hem normal (🏆 / chips / 🍪) hem turnuva (🏅 / tournamentChips / 💎) lider tablosunu render eder.
+// title: modal başlığı, chipField: her oyuncuda okunacak alan, icon: çip ikonu.
+function LeaderboardModal({
+  show,
+  onClose,
+  leaderboardData,
+  title = '🏆 Lider Tablosu',
+  chipField = 'chips',
+  icon = '🍪',
+}) {
   if (!show) return null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content leaderboard-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>🏆 Lider Tablosu</h2>
+          <h2>{title}</h2>
           <button className="modal-close-btn" onClick={onClose}>✕</button>
         </div>
-        
+
         <div className="leaderboard-list">
           {!leaderboardData ? (
             <p className="no-data">Veri yükleniyor...</p>
@@ -41,7 +50,7 @@ function LeaderboardModal({ show, onClose, leaderboardData }) {
                         {player.username}
                       </span>
                     </td>
-                    <td className="chips-cell">{player.chips} 🍪</td>
+                    <td className="chips-cell">{player[chipField]} {icon}</td>
                   </tr>
                 ))}
               </tbody>
