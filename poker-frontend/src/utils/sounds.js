@@ -78,7 +78,14 @@ const SOUNDS = {
   ],
 
   // Yeni sohbet mesajı (başkasından): çok hafif blip
-  chat: [{ f: 680, t: 0, d: 0.05, type: 'sine', g: 0.05 }]
+  chat: [{ f: 680, t: 0, d: 0.05, type: 'sine', g: 0.05 }],
+
+  // 🍵 Çay ısmarlama: yumuşak, sıcak üç nota (fincan tıkırtısı + hafif buhar hissi)
+  tea: [
+    { f: 880,  t: 0.00, d: 0.07, type: 'sine',     g: 0.09 },
+    { f: 1180, t: 0.08, d: 0.09, type: 'sine',     g: 0.08 },
+    { f: 660,  t: 0.17, d: 0.14, type: 'triangle', g: 0.07 }
+  ]
 };
 
 export function playSound(name) {

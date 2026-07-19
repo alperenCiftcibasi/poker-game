@@ -17,7 +17,8 @@ function statusBadge(player, gameState) {
 
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
-  gameState, faceCards, highlightKeys, isWinner, avatarVersion, chipIcon = '🍪'
+  gameState, faceCards, highlightKeys, isWinner, avatarVersion, chipIcon = '🍪',
+  onSendTea, teaFor = []
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
 
@@ -60,6 +61,21 @@ function Seat({
 
   return (
     <div className={classes} style={wrapperStyle}>
+      {/* 🍵 Uçan çay(lar): hedef koltuğun üzerinde yükselir + solar (kendini temizler) */}
+      {teaFor.map((t) => (
+        <div key={t.id} className="pk-tea-fly">🍵</div>
+      ))}
+
+      {/* 🍵 Çay ısmarla butonu (bu oyuncuya / kendine, 50 çip) */}
+      {onSendTea && !player.left && (
+        <button
+          className="pk-seat-tea-btn"
+          onClick={(e) => { e.stopPropagation(); onSendTea(player.id); }}
+          title={isMe ? 'Kendine çay ısmarla (50 🍪)' : `${player.username} için çay ısmarla (50 🍪)`}
+          aria-label={isMe ? 'Kendine çay ısmarla' : `${player.username} için çay ısmarla`}
+        >🍵</button>
+      )}
+
       {/* Kartlar (koltuğun üstünde) */}
       <div className="pk-seat-cards">
         {showFaceCards && faceCards.map((c, i) => (

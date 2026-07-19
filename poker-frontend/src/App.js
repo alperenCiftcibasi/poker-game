@@ -48,6 +48,7 @@ function App() {
   const [buyInBank, setBuyInBank] = useState(null); // null = bakiye yükleniyor
   const [gameLog, setGameLog] = useState([]); // Faz 4.4: aksiyon/olay logu
   const [chatMessages, setChatMessages] = useState([]); // Masaya özel yazılı sohbet
+  const [teaAnims, setTeaAnims] = useState([]); // 🍵 Uçan çay animasyonları (geçici, kendini temizler)
   const [muted, setMuted] = useState(isMuted()); // Faz 5: ses aç/kapa
   const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
   const myIdRef = useRef(null);    // socket dinleyicileri için taze kullanıcı id'si
@@ -242,6 +243,22 @@ function App() {
         setChatMessages(prev => [...prev, msg].slice(-100));
         // Başkasından gelen mesajda hafif bildirim sesi (kendi mesajım sessiz)
         if (msg && msg.userId !== myIdRef.current) playSound('chat');
+      });
+      // 🍵 Çay ısmarlama: hedef koltuğa uçan çay animasyonu + log satırı + ses.
+      // (revealMessages kalıbı: geçici state'e koy, birkaç saniye sonra temizle.)
+      newSocket.on('teaReceived', (data) => {
+        if (!data || !data.id) return;
+        setTeaAnims(prev => [...prev, data]);
+        setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 3500);
+        const meId = myIdRef.current;
+        const fromLabel = data.fromId === meId ? 'Sen' : data.fromUsername;
+        const toLabel = data.toId === data.fromId ? 'kendine'
+          : data.toId === meId ? 'sana'
+          : `${data.toUsername}'e`;
+        const verb = data.fromId === meId ? 'ısmarladın' : 'ısmarladı';
+        const costNote = data.fromId === meId ? ` (−${data.cost} 🍪)` : '';
+        addLog('tea', `🍵 ${fromLabel}, ${toLabel} çay ${verb}${costNote}`);
+        playSound('tea');
       });
       // Masa doluyken oturma talebi kuyruğa alındı
       newSocket.on('queued', (data) => {
@@ -439,6 +456,13 @@ function App() {
     }
   };
 
+  // 🍵 Bir oyuncuya (ya da kendine) çay ısmarla: bedel sunucuda bakiyeden düşülür.
+  const handleSendTea = (toUserId) => {
+    if (socket && tableState) {
+      socket.emit('sendTea', { tableId: tableState.id, toUserId });
+    }
+  };
+
   const handleOpenLeaderboard = async () => {
     setShowLeaderboard(true);
     setLeaderboardData(null); // Reset to loading state
@@ -623,6 +647,8 @@ function App() {
                 gameLog={gameLog}
                 chatMessages={chatMessages}
                 onSendChat={handleSendChat}
+                onSendTea={handleSendTea}
+                teaAnims={teaAnims}
                 avatarVersion={avatarVersion}
               />
             ) : <div>Yönlendiriliyor...</div>
