@@ -233,7 +233,7 @@ function LobbyPage({ socket, isConnected, token, user }) {
                 <div className="lobby-card-info">
                   <div><span className="k">Blindlar</span><span className="v">{t.smallBlind} / {t.bigBlind}</span></div>
                   <div><span className="k">Buy-in</span><span className="v">{t.minBuyIn} - {t.maxBuyIn > 0 ? t.maxBuyIn : '∞'} {icon}</span></div>
-                  <div><span className="k">Oyuncu</span><span className="v">{t.playerCount} / {t.maxPlayers}</span></div>
+                  <div><span className="k">Oyuncu</span><span className="v">{t.playerCount} / {t.maxPlayers}{t.queueCount > 0 ? ` (+${t.queueCount} sırada)` : ''}</span></div>
                 </div>
                 <div className="lobby-card-actions">
                   <button

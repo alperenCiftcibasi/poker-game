@@ -4,10 +4,14 @@ import { avatarHue, avatarUrl } from '../Avatar';
 
 function statusBadge(player, gameState) {
   if (player.disconnected) return { text: '📴 Bağlantı koptu', cls: 'off' };
-  if (gameState === 'finished' && player.pendingLeave) return { text: '🚪 Kalktı', cls: 'leave' };
+  // Oyun sonu "Ayrıldı": artık masada değil ama el sonu bilgileri koltukta durur.
+  if (player.left || (gameState === 'finished' && player.pendingLeave)) return { text: '🚪 Ayrıldı', cls: 'leave' };
   if (player.pendingLeave) return { text: '⚠️ Ayrılıyor', cls: 'leave' };
   if (player.status === 'all-in') return { text: '🔥 ALL-IN', cls: 'allin' };
   if (player.status === 'folded') return { text: 'Fold', cls: 'folded' };
+  // El sürerken oturan yeni oyuncu: bu ele dahil değil, sıradaki eli bekliyor.
+  const handActive = !['waiting', 'finished', 'showdown'].includes(gameState);
+  if (handActive && player.status === 'waiting') return { text: '🕒 Sonraki el', cls: 'waiting' };
   return null;
 }
 

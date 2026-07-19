@@ -107,8 +107,15 @@ function TablePage({
     return <div className="app"><h1>Masa Yükleniyor...</h1></div>;
   }
 
-  const isPendingLeave = myPlayer?.pendingLeave;
+  // "Ayrılıyor" durumu: aktif elde tur sonu (pendingLeave) veya oyun sonu "Ayrıldı" (left).
+  const isPendingLeave = myPlayer?.pendingLeave || myPlayer?.left;
   const canChangeSettings = amISitting && (gameState === 'waiting' || gameState === 'finished');
+
+  // Oturma kuyruğu: masa doluyken oturmak isteyenler burada bekler.
+  const queue = tableState?.queue || [];
+  const amQueued = !!myInfo && queue.some(q => q.id === myInfo.id);
+  const myQueuePos = amQueued ? queue.findIndex(q => q.id === myInfo.id) + 1 : 0;
+  const isFull = players.length >= maxPlayers;
 
   // El sonu "göster/gösterme" penceresi (herkese aynı anda)
   const showMuckDeciders = tableState?.showMuckDeciders ?? [];
@@ -209,7 +216,12 @@ function TablePage({
             )}
           </div>
         ) : (
-          <div className="pk-spectator">👀 Şu an izleyicisiniz</div>
+          <div className="pk-spectator">
+            👀 Şu an izleyicisiniz
+            {amQueued && (
+              <span className="pk-queue-note"> · ⏳ Oturma sırasındasınız (sıra #{myQueuePos}/{queue.length})</span>
+            )}
+          </div>
         )}
 
         {/* El sonu: kart göster/gösterme kararı (sıra bende) */}
@@ -236,14 +248,22 @@ function TablePage({
 
         {/* Kontroller */}
         <div className="pk-controls">
-          {!amISitting && (
-            <button className="pk-ctrl-btn sit" onClick={onSit} disabled={isGameActive}>
-              {isGameActive ? '🔒 Oyun sürüyor (bekleyin)' : '🪑 Masaya Otur'}
+          {/* Oturma: boş koltuk varsa oyun sürerken bile hemen otur; masa doluysa sıraya gir. */}
+          {!amISitting && !amQueued && (
+            <button className="pk-ctrl-btn sit" onClick={onSit}>
+              {isFull ? '⏳ Oturma Sırasına Gir' : '🪑 Masaya Otur'}
+            </button>
+          )}
+          {!amISitting && amQueued && (
+            <button className="pk-ctrl-btn pending" onClick={onLeave}>
+              ❌ Sıradan Çık (#{myQueuePos})
             </button>
           )}
           {amISitting && (
             <button className={`pk-ctrl-btn ${isPendingLeave ? 'pending' : 'leave'}`} onClick={onLeave}>
-              {isPendingLeave ? '🔄 Ayrılmayı İptal Et' : '👋 Masadan Kalk'}
+              {isPendingLeave
+                ? (myPlayer?.left ? '↩️ Masada Kal' : '🔄 Ayrılmayı İptal Et')
+                : '👋 Masadan Kalk'}
             </button>
           )}
           {amISitting && gameState === 'waiting' && players.length >= 2 && (

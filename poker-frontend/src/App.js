@@ -243,6 +243,10 @@ function App() {
         // Başkasından gelen mesajda hafif bildirim sesi (kendi mesajım sessiz)
         if (msg && msg.userId !== myIdRef.current) playSound('chat');
       });
+      // Masa doluyken oturma talebi kuyruğa alındı
+      newSocket.on('queued', (data) => {
+        addLog('info', `⏳ Masa dolu — oturma sırasına alındınız (sıra #${data?.position ?? '?'}).`);
+      });
       newSocket.on('error', (message) => alert(`Sunucu Hatası: ${message}`));
       // Masa admin tarafından silindi: masadaki/izleyen herkesi bilgilendir ve lobiye at.
       newSocket.on('tableClosed', (data) => {

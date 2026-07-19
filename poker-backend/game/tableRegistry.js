@@ -13,4 +13,14 @@ function findSeatedTable(userId, exceptTable = null) {
     return null;
 }
 
-module.exports = { activeTables, findSeatedTable };
+// Kullanıcıyı, verilen masa hariç TÜM masaların oturma kuyruklarından çıkarır.
+// (Bir kullanıcı aynı anda yalnızca tek bir masada oturabildiği/sıraya girebildiği için,
+//  bir masaya oturunca/sıraya girince diğer masalardaki bekleyişi iptal edilir.)
+function dequeueEverywhere(userId, exceptTable = null) {
+    for (const table of activeTables.values()) {
+        if (table === exceptTable) continue;
+        if (typeof table.dequeue === 'function') table.dequeue(userId);
+    }
+}
+
+module.exports = { activeTables, findSeatedTable, dequeueEverywhere };

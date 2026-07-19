@@ -27,7 +27,7 @@ const authRoutes = require('./routes/auth');
 const tableRoutes = require('./routes/table');
 const adminRoutes = require('./routes/admin');
 const PokerTable = require('./game/PokerTable');
-const { activeTables, findSeatedTable } = require('./game/tableRegistry');
+const { activeTables, findSeatedTable, dequeueEverywhere } = require('./game/tableRegistry');
 const { buildLobbyList } = require('./game/lobbyList');
 const User = require('./models/User');
 
@@ -185,6 +185,11 @@ io.on('connection', (socket) => {
             }
         }
 
+        // Oturma kuyruğunda bekliyorsak, yeni bağlantı ID'sini kuyruk kaydına da yaz
+        // (sıra gelip oturtulunca gizli kartlar doğru sokete gitsin).
+        const queuedEntry = table.joinQueue.find(q => q.id === socket.user.id);
+        if (queuedEntry) queuedEntry.socketId = socket.id;
+
         socket.join(`table_${tableId}`);
         socket.tableId = tableId;
         socket.emit('tableUpdated', table.getPublicState());
@@ -250,16 +255,36 @@ io.on('connection', (socket) => {
             return socket.emit('error', `Geçersiz buy-in. İzin verilen aralık: ${min} - ${upper}. Kasanız: ${bank}.`);
         }
 
+        // Başka bir masanın oturma kuyruğunda bekliyorsak, bu masaya karar verince oradan çık.
+        dequeueEverywhere(socket.user.id, table);
+
         // Masaya buyIn kadar çiple otur; kalan kasada tutulur (bankChips).
         // User.chips zaten toplam bakiyeyi (kasa + masa) tutar; oturmak toplamı değiştirmez, persist gerekmez.
-        const joinResult = table.addPlayer({
+        const seatData = {
             id: socket.user.id, username: socket.user.username, socketId: socket.id,
             chips: amount, bankChips: bank - amount
-        });
-        if (!joinResult.success) return socket.emit('error', joinResult.message);
+        };
 
         socket.tableId = tableId;
         socket.join(`table_${tableId}`);
+
+        // Boş koltuk varsa oyun devam ediyor olsa bile HEMEN otur (yeni oyuncu 'waiting'
+        // gelir, sıradaki elde kart alır). Masa doluysa oturma talebini KUYRUĞA al;
+        // koltuk boşalınca (el sonu / biri kalkınca) FIFO sırayla otomatik oturtulur.
+        let seated = false;
+        if (table.players.length < table.maxPlayers) {
+            const joinResult = table.addPlayer(seatData);
+            seated = joinResult.success;
+            if (!seated && !joinResult.message?.includes('dolu')) {
+                // Dolu dışında bir sebeple oturtulamadı (ör. zaten masada) → hatayı ilet.
+                return socket.emit('error', joinResult.message);
+            }
+        }
+        if (!seated) {
+            const q = table.enqueueJoin(seatData);
+            if (!q.success) return socket.emit('error', q.message);
+            socket.emit('queued', { tableId, position: q.position });
+        }
         broadcastTableUpdate(io, table);
     });
 
@@ -267,6 +292,11 @@ io.on('connection', (socket) => {
     // (Koltuktan kalkma değil — o 'leaveTable'; oturan oyuncu el bitene kadar masada kalır.)
     socket.on('leaveTableView', () => {
         if (socket.tableId) {
+            // Sadece izliyor/sıra bekliyorduysak lobiye dönünce oturma kuyruğundan da çık.
+            const t = activeTables.get(socket.tableId);
+            if (t && typeof t.dequeue === 'function' && t.dequeue(socket.user.id)) {
+                broadcastTableUpdate(io, t);
+            }
             socket.leave(`table_${socket.tableId}`);
             socket.tableId = null;
         }
@@ -438,7 +468,13 @@ io.on('connection', (socket) => {
         if (!table) return;
 
         const leavingPlayer = table.players.find(p => p.id === socket.user.id);
-        if (!leavingPlayer) return;
+        if (!leavingPlayer) {
+            // Oturmuyor ama oturma kuyruğunda bekliyor olabilir → kuyruktan çıkar.
+            if (typeof table.dequeue === 'function' && table.dequeue(socket.user.id)) {
+                broadcastTableUpdate(io, table);
+            }
+            return;
+        }
 
         // B8: Eski sekme koruması — sadece güncel bağlantının disconnect'i işlenir.
         // (Kullanıcı yeni bir sekme açtıysa socketId güncellenmiştir; eski sekmenin

@@ -23,6 +23,7 @@ async function buildLobbyList() {
             maxPlayers: t.maxPlayers,
             type: t.type || 'normal',
             playerCount: live ? live.players.length : 0,
+            queueCount: live && Array.isArray(live.joinQueue) ? live.joinQueue.length : 0,
             gameState: live ? live.gameState : 'waiting'
         };
     });

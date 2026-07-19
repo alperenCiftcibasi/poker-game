@@ -54,6 +54,11 @@ class PokerTable {
 
         // Masaya özel yazılı sohbet (son 50 mesaj bellekte tutulur; masa yaşadıkça kalır)
         this.chatHistory = [];
+
+        // Oturma kuyruğu: masa doluyken gelen oturma talepleri burada FIFO bekler.
+        // Koltuk boşaldığında (_admitFromQueue) sırayla masaya alınır.
+        // Her giriş: { id, username, socketId, chips (buy-in), bankChips }
+        this.joinQueue = [];
     }
 
     // Masaya sohbet mesajı ekler. Geçersizse null döner, geçerliyse yayınlanacak kaydı döner.
@@ -152,22 +157,61 @@ class PokerTable {
         }
     }
 
+    // Yeni bir oturan oyuncu nesnesi (varsayılan alanlarla) üretir.
+    _makeSeat(user) {
+        return {
+            id: user.id, username: user.username, socketId: user.socketId, chips: user.chips,
+            bankChips: user.bankChips || 0, // oturma anında kasada (masa dışında) kalan çip
+            cards: [], currentBet: 0, status: 'waiting', hasActed: false, handDescription: '',
+            pendingLeave: false, left: false, totalInvested: 0, revealedCards: [], disconnected: false
+        };
+    }
+
+    // Masaya oturt. Oyun DEVAM EDERKEN de oturulabilir: yeni oyuncu 'waiting' durumunda
+    // gelir, mevcut ele DAHİL OLMAZ (kart almaz) ve el sonu mantığından dışlanır; sıradaki
+    // elde (startGame) kart alır. Boş koltuk yoksa oturtulmaz — çağıran (server) bu durumda
+    // talebi kuyruğa (enqueueJoin) alır.
     addPlayer(user) {
-        if (this.gameState !== 'waiting' && this.gameState !== 'finished') {
-            return { success: false, message: "Oyun devam ederken masaya oturulamaz." };
-        }
         if (this.players.length >= this.maxPlayers) return { success: false, message: "Masa dolu!" };
         if (this.players.find(p => p.id === user.id)) return { success: false, message: "Zaten bu masadasınız." };
         if (user.chips <= 0) return { success: false, message: "Bakiyeniz yetersiz! Masaya oturmak için en az 1 chip'e ihtiyacınız var." };
 
-        this.players.push({
-            id: user.id, username: user.username, socketId: user.socketId, chips: user.chips,
-            bankChips: user.bankChips || 0, // oturma anında kasada (masa dışında) kalan çip
-            cards:[], currentBet: 0, status: 'waiting', hasActed: false, handDescription: '', pendingLeave: false,
-            totalInvested: 0, revealedCards: [], disconnected: false
-        });
-
+        this.players.push(this._makeSeat(user));
         return { success: true, message: "Masaya başarıyla oturdunuz." };
+    }
+
+    // Masa doluyken gelen oturma talebini kuyruğa alır. Buy-in miktarı talep anında
+    // (server'da) doğrulanır ve saklanır; koltuk boşalınca bu miktarla masaya alınır.
+    enqueueJoin(user) {
+        if (this.players.find(p => p.id === user.id)) return { success: false, message: "Zaten bu masadasınız." };
+        if (this.joinQueue.find(q => q.id === user.id)) return { success: false, message: "Zaten oturma sırasındasınız." };
+        this.joinQueue.push({
+            id: user.id, username: user.username, socketId: user.socketId,
+            chips: user.chips, bankChips: user.bankChips || 0
+        });
+        return { success: true, queued: true, position: this.joinQueue.length };
+    }
+
+    // Kullanıcıyı oturma kuyruğundan çıkarır. Çıkarıldıysa true.
+    dequeue(userId) {
+        const before = this.joinQueue.length;
+        this.joinQueue = this.joinQueue.filter(q => q.id !== userId);
+        return this.joinQueue.length !== before;
+    }
+
+    // Boş koltuk oldukça kuyruktakileri FIFO oturt. Oturtulan girişleri döndürür.
+    // Sadece oturmanın güvenli olduğu anlarda (waiting / eller arası reset) çağrılmalı;
+    // eklenen oyuncular 'waiting' gelir, aktif ele karışmaz.
+    _admitFromQueue() {
+        const admitted = [];
+        while (this.joinQueue.length > 0 && this.players.length < this.maxPlayers) {
+            const q = this.joinQueue.shift();
+            if (this.players.find(p => p.id === q.id)) continue; // zaten oturuyor
+            if (!(q.chips > 0)) continue;                        // geçersiz buy-in
+            this.players.push(this._makeSeat(q));
+            admitted.push(q);
+        }
+        return admitted;
     }
 
     // El sırasında bağlantı kopması: anında fold etme; sırası gelince turn timer çözer.
@@ -185,11 +229,24 @@ class PokerTable {
 
     togglePendingLeave(userId) {
         const player = this.players.find(p => p.id === userId);
-        if (!player) return null;
+        if (!player) {
+            // Oturmuyor ama oturma kuyruğunda olabilir → kuyruktan çıkar.
+            return this.dequeue(userId) ? { action: 'dequeued' } : null;
+        }
         if (this.gameState === 'waiting') {
             this.removePlayer(userId);
             return { action: 'removed' };
         }
+        if (this.gameState === 'finished') {
+            // Oyun sonu bekleme: anında "ayrıldı" durumuna geç. Oyuncu artık katılımcı
+            // sayılmaz ama el sonu bilgileri (kart/kombinasyon/stack) sıradaki ele kadar
+            // koltukta "Ayrıldı" olarak durur. Sıradaki el başlarken (reset) masadan düşer.
+            player.left = !player.left;
+            player.pendingLeave = player.left;
+            if (player.left) this._removeDecider(userId); // göster/gösterme sırasından da çıkar
+            return { action: player.left ? 'left' : 'stay' };
+        }
+        // Aktif el sürüyor: eli bitirir, tur sonunda (reset) kalkar.
         player.pendingLeave = !player.pendingLeave;
         return { action: 'pending', status: player.pendingLeave };
     }
@@ -218,6 +275,12 @@ class PokerTable {
             this._clearShowMuck();
             if (this.resetTimer) clearTimeout(this.resetTimer);
             if (this.runoutTimer) { clearTimeout(this.runoutTimer); this.runoutTimer = null; }
+        }
+
+        // Koltuk boşaldı: masa beklemedeyken kuyruktakileri hemen oturt.
+        // (El sürerken removePlayer çağrılmaz; oturtma güvenli.)
+        if (this.gameState === 'waiting' || this.gameState === 'finished') {
+            this._admitFromQueue();
         }
     }
 
@@ -452,7 +515,10 @@ class PokerTable {
     }
 
     checkNextStage() {
-        const activePlayers = this.players.filter(p => p.status !== 'folded' && p.status !== 'sitting-out');
+        // El içindeki "hâlâ yarışan" oyuncular = playing + all-in.
+        // (El ortasında oturan 'waiting' oyuncular ve 'sitting-out'/'folded' dışlanır;
+        //  aksi halde herkes fold edince tek kalanı bulan aşağıdaki kontrol şaşardı.)
+        const activePlayers = this.players.filter(p => p.status === 'playing' || p.status === 'all-in');
         if (activePlayers.length === 1) {
             // Herkes çekildi: pot tek kalana, kartlar açılmadan
             activePlayers[0].chips += this.pot;
@@ -645,8 +711,11 @@ class PokerTable {
     _armResetTimer() {
         if (this.resetTimer) clearTimeout(this.resetTimer);
         this.resetTimer = setTimeout(() => {
-            // Chip'i bitenleri, ayrılmak isteyenleri ve bağlantısı kopanları masadan çıkar
-            this.players = this.players.filter(p => !p.pendingLeave && p.chips > 0 && !p.disconnected);
+            // Chip'i bitenleri, ayrılmak isteyenleri ("Ayrıldı" dahil) ve bağlantısı
+            // kopanları masadan çıkar. (left, pendingLeave'i de set eder; yine de açık tutuyoruz.)
+            this.players = this.players.filter(p => !p.pendingLeave && !p.left && p.chips > 0 && !p.disconnected);
+            // Ayrılanlardan boşalan koltuklara oturma kuyruğundakileri FIFO al.
+            this._admitFromQueue();
             this.pot = 0;
             this.communityCards = [];
             this.winners =[];
@@ -804,8 +873,11 @@ class PokerTable {
                 type: this.type // 'normal' | 'tournament' → istemci doğru çip ikonunu gösterir
             },
             activeProposal: this.getProposalState(),
+            // Oturma kuyruğu (masa doluyken bekleyenler; herkese açık — sadece id + isim).
+            queue: this.joinQueue.map(q => ({ id: q.id, username: q.username })),
             players: this.players.map((p, i) => ({
                 id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
+                left: !!p.left, // oyun sonu "Ayrıldı": bilgileri koltukta durur, sıradaki elde düşer
                 disconnected: !!p.disconnected,
                 // Kartlar public state'te asla açık gitmez; gösterim revealedCards kanalından.
                 cards: [],

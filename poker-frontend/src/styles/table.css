@@ -178,6 +178,7 @@
 .pk-seat-status.folded { color: var(--pk-muted); }
 .pk-seat-status.off { color: #95a5a6; }
 .pk-seat-status.leave { color: #e67e22; }
+.pk-seat-status.waiting { color: #3498db; }
 .pk-seat-timer { font-size: 11px; color: var(--pk-green); font-weight: bold; }
 .pk-seat-timer.danger { color: var(--pk-red); }
 
@@ -234,6 +235,7 @@
 .pk-ctrl-btn:disabled { background: #7f8c8d; cursor: not-allowed; opacity: 0.7; }
 .pk-ctrl-btn:hover:not(:disabled) { filter: brightness(1.1); }
 .pk-spectator { color: var(--pk-muted); font-style: italic; padding: 8px 4px; }
+.pk-queue-note { color: #3498db; font-style: normal; font-weight: bold; }
 
 /* ============ ActionBar ============ */
 .pk-actionbar {
