@@ -10,6 +10,7 @@ import LeaderboardModal from './components/LeaderboardModal';
 import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
 import AccountModal from './components/AccountModal';
+import TreatModal from './components/TreatModal';
 import Avatar from './components/Avatar';
 import { SERVER_URL } from './config';
 import { playSound, isMuted, toggleMute } from './utils/sounds';
@@ -49,6 +50,7 @@ function App() {
   const [gameLog, setGameLog] = useState([]); // Faz 4.4: aksiyon/olay logu
   const [chatMessages, setChatMessages] = useState([]); // Masaya özel yazılı sohbet
   const [teaAnims, setTeaAnims] = useState([]); // 🍵 Uçan çay animasyonları (geçici, kendini temizler)
+  const [treatTarget, setTreatTarget] = useState(null); // ➕ Ismarlama modalı hedefi: { id, username }
   const [muted, setMuted] = useState(isMuted()); // Faz 5: ses aç/kapa
   const winnerKeyRef = useRef(''); // aynı elin kazananını loga bir kez ekle
   const myIdRef = useRef(null);    // socket dinleyicileri için taze kullanıcı id'si
@@ -249,7 +251,8 @@ function App() {
       newSocket.on('teaReceived', (data) => {
         if (!data || !data.id) return;
         setTeaAnims(prev => [...prev, data]);
-        setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 3500);
+        // CSS uçuş animasyonu 4.2s; bitiminden sonra DOM'dan kaldır (pay bırak)
+        setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 4800);
         const meId = myIdRef.current;
         const fromLabel = data.fromId === meId ? 'Sen' : data.fromUsername;
         const toLabel = data.toId === data.fromId ? 'kendine'
@@ -463,6 +466,9 @@ function App() {
     }
   };
 
+  // ➕ Koltuktaki ısmarlama butonuna basıldı: modalı hedef oyuncuyla aç.
+  const handleOpenTreat = (target) => setTreatTarget(target);
+
   const handleOpenLeaderboard = async () => {
     setShowLeaderboard(true);
     setLeaderboardData(null); // Reset to loading state
@@ -621,6 +627,13 @@ function App() {
         avatarVersion={avatarVersion}
       />
 
+      <TreatModal
+        show={!!treatTarget && !!tableState}
+        target={treatTarget ? { ...treatTarget, isMe: treatTarget.id === user?.id } : null}
+        onClose={() => setTreatTarget(null)}
+        onBuy={(toUserId) => { handleSendTea(toUserId); setTreatTarget(null); }}
+      />
+
       <Routes>
         <Route path="/login" element={<LoginPage onLogin={handleLogin} />} />
         <Route path="/lobby" element={token ? <LobbyPage socket={socket} isConnected={connectionStatus === 'connected'} token={token} user={user} /> : <div>Yükleniyor...</div>} />
@@ -647,7 +660,7 @@ function App() {
                 gameLog={gameLog}
                 chatMessages={chatMessages}
                 onSendChat={handleSendChat}
-                onSendTea={handleSendTea}
+                onOpenTreat={handleOpenTreat}
                 teaAnims={teaAnims}
                 avatarVersion={avatarVersion}
               />

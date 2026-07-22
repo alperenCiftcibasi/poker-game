@@ -162,7 +162,7 @@
   position: absolute; font-size: 10px; font-weight: 800; color: #1a1a1a;
   border-radius: 10px; padding: 1px 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
-.pk-badge.dealer { bottom: -4px; right: -8px; background: #fff; }
+.pk-badge.dealer { bottom: -4px; left: -8px; background: #fff; }
 .pk-badge.sb { top: -6px; left: -10px; background: #74b9ff; }
 .pk-badge.bb { top: -6px; right: -10px; background: #ffeaa7; }
 
@@ -190,33 +190,53 @@
 .pk-seat.winner .pk-seat-plate { animation: pk-winner-glow 1.2s ease-in-out infinite; }
 @keyframes pk-winner-glow { 0%,100% { box-shadow: 0 0 8px rgba(241,196,15,0.4); } 50% { box-shadow: 0 0 20px rgba(241,196,15,0.9); } }
 
-/* 🍵 Çay ısmarla butonu: koltuğun sağ üst köşesinde küçük, hafif solgun; hover'da belirginleşir */
-.pk-seat-tea-btn {
-  position: absolute; top: -2px; right: -4px; z-index: 6;
-  width: 26px; height: 26px; padding: 0;
-  border: none; border-radius: 50%;
-  background: rgba(0,0,0,0.42);
-  font-size: 14px; line-height: 1; cursor: pointer;
+/* ➕ Ismarlama butonu: avatarın sağ-alt köşesinde küçük/şeffaf; hover'da belirginleşir */
+.pk-treat-btn {
+  position: absolute; bottom: -4px; right: -8px; z-index: 6;
+  width: 20px; height: 20px; padding: 0;
+  border: 1px solid rgba(255,255,255,0.35); border-radius: 50%;
+  background: rgba(0,0,0,0.35); color: #fff;
+  font-size: 14px; font-weight: 700; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  opacity: 0.5; transition: opacity .15s, transform .15s, background .15s;
+  opacity: 0.55; transition: opacity .15s, transform .15s, background .15s;
 }
-.pk-seat-tea-btn:hover { opacity: 1; transform: scale(1.18); background: rgba(0,0,0,0.72); }
-.pk-seat-tea-btn:active { transform: scale(0.96); }
+.pk-treat-btn:hover { opacity: 1; transform: scale(1.2); background: rgba(0,0,0,0.7); }
+.pk-treat-btn:active { transform: scale(0.95); }
 
-/* 🍵 Uçan çay: hedef koltuğun üzerinde belirir, yükselir ve solar (App.js 3.5 sn sonra kaldırır) */
-.pk-tea-fly {
-  position: absolute; left: 50%; top: 18%;
-  transform: translateX(-50%);
-  font-size: 30px; pointer-events: none; z-index: 20;
-  filter: drop-shadow(0 3px 5px rgba(0,0,0,0.5));
-  animation: pk-tea-rise 3.2s ease-out forwards;
+/* 🍵 Uçan çay katmanı: koltukların üstünde, tıklamayı engellemez */
+.pk-tea-layer { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
+
+/* Gönderenden alıcının + butonuna DOĞRUSAL uçuş → konma → bekleme → solma.
+   Toplam 4.2s (App.js 4.8s sonra DOM'dan kaldırır):
+   0–8% belirme · 8–55% linear yolculuk · 55–70% konma esnemesi · 70–86% bekleme · 86–100% solma */
+.pk-tea-travel {
+  position: absolute; left: var(--fx); top: var(--fy);
+  width: clamp(28px, 3.6vw, 44px); height: auto;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
+  animation: pk-tea-travel 4.2s forwards;
 }
-@keyframes pk-tea-rise {
-  0%   { opacity: 0; transform: translate(-50%, 12px)  scale(0.4); }
-  14%  { opacity: 1; transform: translate(-50%, -4px)  scale(1.2); }
-  32%  { opacity: 1; transform: translate(-50%, -18px) scale(1); }
-  72%  { opacity: 1; transform: translate(-50%, -44px) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -74px) scale(0.9); }
+@keyframes pk-tea-travel {
+  0%   { left: var(--fx); top: var(--fy); opacity: 0;
+         transform: translate(-50%,-50%) scale(0.5); animation-timing-function: linear; }
+  8%   { opacity: 1; transform: translate(-50%,-50%) scale(1); animation-timing-function: linear; }
+  55%  { left: var(--tx); top: var(--ty); opacity: 1;
+         transform: translate(-50%,-50%) scale(1); animation-timing-function: ease-out; }
+  62%  { transform: translate(-50%,-50%) scale(0.88); }
+  70%  { transform: translate(-50%,-50%) scale(1); }
+  86%  { left: var(--tx); top: var(--ty); opacity: 1; }
+  100% { left: var(--tx); top: var(--ty); opacity: 0;
+         transform: translate(-50%,-50%) scale(0.9); }
+}
+
+/* Kendine ısmarlama: yolculuk yok → butonda belir, dur, sol */
+.pk-tea-travel.self { animation: pk-tea-self 2.4s forwards; }
+@keyframes pk-tea-self {
+  0%   { left: var(--tx); top: var(--ty); opacity: 0; transform: translate(-50%,-50%) scale(0.5); }
+  15%  { opacity: 1; transform: translate(-50%,-50%) scale(1.1); }
+  25%  { transform: translate(-50%,-50%) scale(1); }
+  78%  { opacity: 1; }
+  100% { left: var(--tx); top: var(--ty); opacity: 0; transform: translate(-50%,-50%) scale(0.9); }
 }
 
 /* ============ Bahis çipleri ============ */

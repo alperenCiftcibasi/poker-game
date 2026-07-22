@@ -18,7 +18,7 @@ function statusBadge(player, gameState) {
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
   gameState, faceCards, highlightKeys, isWinner, avatarVersion, chipIcon = '🍪',
-  onSendTea, teaFor = []
+  onOpenTreat
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
 
@@ -60,22 +60,7 @@ function Seat({
   ].filter(Boolean).join(' ');
 
   return (
-    <div className={classes} style={wrapperStyle}>
-      {/* 🍵 Uçan çay(lar): hedef koltuğun üzerinde yükselir + solar (kendini temizler) */}
-      {teaFor.map((t) => (
-        <div key={t.id} className="pk-tea-fly">🍵</div>
-      ))}
-
-      {/* 🍵 Çay ısmarla butonu (bu oyuncuya / kendine, 50 çip) */}
-      {onSendTea && !player.left && (
-        <button
-          className="pk-seat-tea-btn"
-          onClick={(e) => { e.stopPropagation(); onSendTea(player.id); }}
-          title={isMe ? 'Kendine çay ısmarla (50 🍪)' : `${player.username} için çay ısmarla (50 🍪)`}
-          aria-label={isMe ? 'Kendine çay ısmarla' : `${player.username} için çay ısmarla`}
-        >🍵</button>
-      )}
-
+    <div className={classes} style={wrapperStyle} data-seat-player={player.id}>
       {/* Kartlar (koltuğun üstünde) */}
       <div className="pk-seat-cards">
         {showFaceCards && faceCards.map((c, i) => (
@@ -106,6 +91,16 @@ function Seat({
         {player.isDealer && <span className="pk-badge dealer" title="Dealer">D</span>}
         {player.isSB && <span className="pk-badge sb" title="Small Blind">SB</span>}
         {player.isBB && <span className="pk-badge bb" title="Big Blind">BB</span>}
+        {/* ➕ Ismarlama butonu: modal açar (şimdilik tek ürün: çay) */}
+        {onOpenTreat && !player.left && (
+          <button
+            className="pk-treat-btn"
+            data-treat-btn={player.id}
+            onClick={(e) => { e.stopPropagation(); onOpenTreat({ id: player.id, username: player.username }); }}
+            title={isMe ? 'Kendine ısmarla' : `${player.username} için ısmarla`}
+            aria-label={isMe ? 'Kendine ısmarla' : `${player.username} için ısmarla`}
+          >+</button>
+        )}
       </div>
 
       {/* İsim + stack */}

@@ -14,6 +14,7 @@ import GameLog from './table/GameLog';
 import ChatPanel from './table/ChatPanel';
 import HandBanners from './table/HandBanners';
 import SettingsPanel from './table/SettingsPanel';
+import TeaFlight from './table/TeaFlight';
 import { getSeatPositions, assignSeats } from './table/seatLayout';
 import { chipIcon } from '../utils/currency';
 
@@ -28,7 +29,7 @@ const SETTING_LABELS = {
 function TablePage({
   tableState, myCards, myHandRank, myComboCards, myInfo, onAction, onStartGame, onSit, onLeave, onGoLobby,
   onRevealCards, onShowMuckDecision, revealMessages, activeProposal, voteResult,
-  onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat, onSendTea, teaAnims, avatarVersion
+  onProposeSettingChange, onVote, gameLog, chatMessages, onSendChat, onOpenTreat, teaAnims, avatarVersion
 }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -37,6 +38,8 @@ function TablePage({
   const [showChat, setShowChat] = useState(() => localStorage.getItem('poker_showchat') === '1');
   const [chatUnread, setChatUnread] = useState(0);
   const seenChatLenRef = useRef((chatMessages || []).length);
+  // Uçan çay koordinatları bu sahne (stage) elemanına göre ölçülür
+  const stageRef = useRef(null);
 
   // Güvenli veri okuma
   const turnEndTime = tableState?.turnEndTime || null;
@@ -152,7 +155,7 @@ function TablePage({
           <span className="state">{gameState}</span>
         </div>
 
-        <div className="pk-table-stage">
+        <div className="pk-table-stage" ref={stageRef}>
           <TableFelt>
             <div className="pk-center">
               <PotDisplay pot={pot} chipIcon={chipEmoji} />
@@ -177,12 +180,16 @@ function TablePage({
                 isWinner={gameState === 'finished' && !!p && winners.includes(p.username)}
                 avatarVersion={p && p.id === myInfo.id ? avatarVersion : undefined}
                 chipIcon={chipEmoji}
-                onSendTea={onSendTea}
-                teaFor={p ? (teaAnims || []).filter(t => t.toId === p.id) : []}
+                onOpenTreat={onOpenTreat}
               />
               {p && <BetChips position={positions[slot]} amount={p.currentBet} />}
             </React.Fragment>
           ))}
+
+          {/* 🍵 Uçan çaylar: gönderen koltuğundan alıcının ➕ butonuna (koltuklar arası katman) */}
+          <div className="pk-tea-layer" aria-hidden="true">
+            {(teaAnims || []).map(t => <TeaFlight key={t.id} anim={t} stageRef={stageRef} />)}
+          </div>
         </div>
       </div>
 
