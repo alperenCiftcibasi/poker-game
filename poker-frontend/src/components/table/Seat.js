@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, MiniCard, CardBack, cardKey } from './Card';
 import { avatarHue, avatarUrl } from '../Avatar';
+import teaImg from '../../assets/tea.png';
 
 function statusBadge(player, gameState) {
   if (player.disconnected) return { text: '📴 Bağlantı koptu', cls: 'off' };
@@ -18,7 +19,7 @@ function statusBadge(player, gameState) {
 function Seat({
   position, player, isMe, isMyId, isCurrentTurn, timeLeft, turnDuration,
   gameState, faceCards, highlightKeys, isWinner, avatarVersion, chipIcon = '🍪',
-  onOpenTreat
+  onOpenTreat, restTeas = 0
 }) {
   const wrapperStyle = { left: `${position.left}%`, top: `${position.top}%` };
 
@@ -91,6 +92,14 @@ function Seat({
         {player.isDealer && <span className="pk-badge dealer" title="Dealer">D</span>}
         {player.isSB && <span className="pk-badge sb" title="Small Blind">SB</span>}
         {player.isBB && <span className="pk-badge bb" title="Big Blind">BB</span>}
+        {/* 🍵 Kalıcı çay yuvası: uçuşun konma noktası; ısmarlanan çaylar burada birikir,
+            oyuncu masadan kalkana kadar durur. Boşken de render edilir (uçuş hedefi). */}
+        {!player.left && (
+          <div className="pk-seat-teas" data-tea-rest={player.id} title={restTeas > 0 ? `${restTeas} çay` : undefined}>
+            {restTeas > 0 && <img src={teaImg} alt={`${restTeas} çay`} draggable={false} />}
+            {restTeas > 1 && <span className="pk-seat-teas-count">×{restTeas}</span>}
+          </div>
+        )}
         {/* ➕ Ismarlama butonu: modal açar (şimdilik tek ürün: çay) */}
         {onOpenTreat && !player.left && (
           <button

@@ -276,12 +276,16 @@ io.on('connection', (socket) => {
         }
 
         socket.lastTeaAt = now;
+        // Çay koltukta birikir ve oyuncu masadan kalkana kadar durur (süre kısıtı yok);
+        // public state'e girdiği için sonradan gelen izleyici / F5 yapan da görür.
+        target.teas = (target.teas || 0) + 1;
         io.to(`table_${tableId}`).emit('teaReceived', {
             id: `${now}-${socket.user.id}`,
             fromId: socket.user.id, fromUsername: socket.user.username,
             toId: target.id, toUsername: target.username,
             cost: TEA_COST, ts: now
         });
+        broadcastTableUpdate(io, table); // teas sayacını herkese yansıt
     });
 
     // 🪑 MASAYA OTURMA (buy-in ile)

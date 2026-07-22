@@ -3,7 +3,9 @@ import React, { useState, useLayoutEffect } from 'react';
 // "A glass of Turkish tea with sugar cubes on a saucer" — arka planı yerel olarak silindi (22 Tem 2026).
 import teaImg from '../../assets/tea.png';
 
-// Tek bir çay uçuşu: gönderenin koltuğundan alıcının ➕ butonuna doğrusal hareket.
+// Tek bir çay uçuşu: gönderenin koltuğundan alıcının çay yuvasına (avatar yanı) doğrusal
+// hareket. Uçuş konduğu yerde opak kalır; App uçuşu DOM'dan kaldırınca aynı noktadaki
+// kalıcı çay (Seat .pk-seat-teas, restTeas) devralır — süre kısıtı yok, kalkana kadar durur.
 // Koordinatlar bir kez DOM'dan ölçülür ve masa (stage) yüzdesine çevrilir;
 // böylece uçuş sırasında resize olursa yol kabaca korunur, çökme olmaz.
 function TeaFlight({ anim, stageRef }) {
@@ -19,10 +21,11 @@ function TeaFlight({ anim, stageRef }) {
       y: ((r.top + r.height / 2 - sr.top) / sr.height) * 100
     });
 
-    // Hedef: alıcının ➕ butonu; yoksa koltuğu; o da yoksa (bu arada ayrılmış) animasyonu atla.
-    const toBtn = stage.querySelector(`[data-treat-btn="${CSS.escape(String(anim.toId))}"]`);
+    // Hedef: alıcının çay yuvası (kalıcı çayla aynı nokta → kusursuz devir); yoksa
+    // koltuğu; o da yoksa (bu arada ayrılmış) animasyonu atla.
+    const toRest = stage.querySelector(`[data-tea-rest="${CSS.escape(String(anim.toId))}"]`);
     const toSeat = stage.querySelector(`[data-seat-player="${CSS.escape(String(anim.toId))}"]`);
-    const toEl = toBtn || toSeat;
+    const toEl = toRest || toSeat;
     if (!toEl) return;
     const to = pct(toEl.getBoundingClientRect());
 

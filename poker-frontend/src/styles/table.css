@@ -206,37 +206,56 @@
 /* 🍵 Uçan çay katmanı: koltukların üstünde, tıklamayı engellemez */
 .pk-tea-layer { position: absolute; inset: 0; pointer-events: none; z-index: 20; }
 
-/* Gönderenden alıcının + butonuna DOĞRUSAL uçuş → konma → bekleme → solma.
-   Toplam 4.2s (App.js 4.8s sonra DOM'dan kaldırır):
-   0–8% belirme · 8–55% linear yolculuk · 55–70% konma esnemesi · 70–86% bekleme · 86–100% solma */
+/* Gönderenden alıcının çay yuvasına DOĞRUSAL uçuş → konma → yerinde kalır (SOLMAZ).
+   Toplam 3s, forwards son karede opak tutar; App.js 3.4s sonra DOM'dan kaldırır ve
+   aynı noktadaki kalıcı çay (.pk-seat-teas) kesintisiz devralır:
+   0–10% belirme · 10–65% linear yolculuk · 65–82% konma esnemesi · 82–100% yerinde */
 .pk-tea-travel {
   position: absolute; left: var(--fx); top: var(--fy);
   width: clamp(28px, 3.6vw, 44px); height: auto;
   transform: translate(-50%, -50%);
   filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
-  animation: pk-tea-travel 4.2s forwards;
+  animation: pk-tea-travel 3s forwards;
 }
 @keyframes pk-tea-travel {
   0%   { left: var(--fx); top: var(--fy); opacity: 0;
          transform: translate(-50%,-50%) scale(0.5); animation-timing-function: linear; }
-  8%   { opacity: 1; transform: translate(-50%,-50%) scale(1); animation-timing-function: linear; }
-  55%  { left: var(--tx); top: var(--ty); opacity: 1;
+  10%  { opacity: 1; transform: translate(-50%,-50%) scale(1); animation-timing-function: linear; }
+  65%  { left: var(--tx); top: var(--ty); opacity: 1;
          transform: translate(-50%,-50%) scale(1); animation-timing-function: ease-out; }
-  62%  { transform: translate(-50%,-50%) scale(0.88); }
-  70%  { transform: translate(-50%,-50%) scale(1); }
-  86%  { left: var(--tx); top: var(--ty); opacity: 1; }
-  100% { left: var(--tx); top: var(--ty); opacity: 0;
-         transform: translate(-50%,-50%) scale(0.9); }
+  74%  { transform: translate(-50%,-50%) scale(0.88); }
+  82%  { transform: translate(-50%,-50%) scale(1); }
+  100% { left: var(--tx); top: var(--ty); opacity: 1;
+         transform: translate(-50%,-50%) scale(1); }
 }
 
-/* Kendine ısmarlama: yolculuk yok → butonda belir, dur, sol */
-.pk-tea-travel.self { animation: pk-tea-self 2.4s forwards; }
+/* Kendine ısmarlama: yolculuk yok → yuvada belir, otur (yine solmaz) */
+.pk-tea-travel.self { animation: pk-tea-self 1.2s forwards; }
 @keyframes pk-tea-self {
   0%   { left: var(--tx); top: var(--ty); opacity: 0; transform: translate(-50%,-50%) scale(0.5); }
-  15%  { opacity: 1; transform: translate(-50%,-50%) scale(1.1); }
-  25%  { transform: translate(-50%,-50%) scale(1); }
-  78%  { opacity: 1; }
-  100% { left: var(--tx); top: var(--ty); opacity: 0; transform: translate(-50%,-50%) scale(0.9); }
+  40%  { opacity: 1; transform: translate(-50%,-50%) scale(1.1); }
+  60%  { transform: translate(-50%,-50%) scale(1); }
+  100% { left: var(--tx); top: var(--ty); opacity: 1; transform: translate(-50%,-50%) scale(1); }
+}
+
+/* 🍵 Kalıcı çay yuvası: avatarın solunda, oyuncu kalkana kadar durur. Boşken de render
+   edilir (uçuşun hedef noktası) → sabit boyut ŞART, yoksa konma noktası kayar. */
+.pk-seat-teas {
+  position: absolute; top: 50%; right: 100%; margin-right: 4px;
+  transform: translateY(-50%);
+  width: clamp(28px, 3.6vw, 44px); height: clamp(28px, 3.6vw, 44px);
+  pointer-events: none; z-index: 6;
+}
+.pk-seat-teas img {
+  width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.55));
+}
+.pk-seat-teas-count {
+  position: absolute; bottom: -2px; right: -6px;
+  background: #f1c40f; color: #1a1a1a;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  border-radius: 8px; padding: 2px 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
 /* ============ Bahis çipleri ============ */

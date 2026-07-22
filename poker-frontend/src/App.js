@@ -251,8 +251,9 @@ function App() {
       newSocket.on('teaReceived', (data) => {
         if (!data || !data.id) return;
         setTeaAnims(prev => [...prev, data]);
-        // CSS uçuş animasyonu 4.2s; bitiminden sonra DOM'dan kaldır (pay bırak)
-        setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 4800);
+        // CSS uçuş 3s ve konduğu yerde opak bekler (solmaz); kaldırınca aynı noktadaki
+        // kalıcı çay (tableState players[].teas → Seat restTeas) kesintisiz devralır.
+        setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 3400);
         const meId = myIdRef.current;
         const fromLabel = data.fromId === meId ? 'Sen' : data.fromUsername;
         const toLabel = data.toId === data.fromId ? 'kendine'
