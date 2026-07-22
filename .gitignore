@@ -33,3 +33,10 @@ Thumbs.db
 
 # Runtime logs (ngrok / server stdout-stderr)
 *.log
+
+# design-sync (claude.ai/design) — staged scripts, build output, machine state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
