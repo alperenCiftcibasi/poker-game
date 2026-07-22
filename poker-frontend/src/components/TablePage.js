@@ -181,7 +181,7 @@ function TablePage({
                 avatarVersion={p && p.id === myInfo.id ? avatarVersion : undefined}
                 chipIcon={chipEmoji}
                 onOpenTreat={onOpenTreat}
-                restTeas={p ? Math.max(0, (p.teas || 0) - (teaAnims || []).filter(t => t.toId === p.id).length) : 0}
+                treat={p && !(teaAnims || []).some(t => t.toId === p.id) ? (p.treat || null) : null}
               />
               {p && <BetChips position={positions[slot]} amount={p.currentBet} />}
             </React.Fragment>

@@ -164,7 +164,7 @@ class PokerTable {
             bankChips: user.bankChips || 0, // oturma anında kasada (masa dışında) kalan çip
             cards: [], currentBet: 0, status: 'waiting', hasActed: false, handDescription: '',
             pendingLeave: false, left: false, totalInvested: 0, revealedCards: [], disconnected: false,
-            teas: 0 // 🍵 Ismarlanan çaylar koltukta birikir; oyuncu masadan kalkınca nesnesiyle gider
+            treat: null // 🍵🥛 SON ısmarlanan öğe ('tea'|'ayran'); yenisi ezer, kalkınca nesnesiyle gider
 
         };
     }
@@ -881,7 +881,7 @@ class PokerTable {
                 id: p.id, username: p.username, chips: p.chips, currentBet: p.currentBet, status: p.status, pendingLeave: p.pendingLeave,
                 left: !!p.left, // oyun sonu "Ayrıldı": bilgileri koltukta durur, sıradaki elde düşer
                 disconnected: !!p.disconnected,
-                teas: p.teas || 0, // 🍵 koltukta duran çaylar (kalkana kadar)
+                treat: p.treat || null, // 🍵🥛 koltukta duran son ısmarlama (kalkana kadar)
                 // Kartlar public state'te asla açık gitmez; gösterim revealedCards kanalından.
                 cards: [],
                 handDescription: (this.gameState === 'finished' && p.revealedCards.length >= 2) ? p.handDescription : '',

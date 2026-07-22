@@ -1,11 +1,9 @@
 import React, { useState, useLayoutEffect } from 'react';
-// Çay görseli kaynağı: https://wordpress.org/photos/photo/8636890a5e/ (CC0 / Public Domain)
-// "A glass of Turkish tea with sugar cubes on a saucer" — arka planı yerel olarak silindi (22 Tem 2026).
-import teaImg from '../../assets/tea.png';
+import { TREATS } from '../../treats';
 
-// Tek bir çay uçuşu: gönderenin koltuğundan alıcının çay yuvasına (avatar yanı) doğrusal
+// Tek bir ısmarlama uçuşu: gönderenin koltuğundan alıcının yuvasına (avatar yanı) doğrusal
 // hareket. Uçuş konduğu yerde opak kalır; App uçuşu DOM'dan kaldırınca aynı noktadaki
-// kalıcı çay (Seat .pk-seat-teas, restTeas) devralır — süre kısıtı yok, kalkana kadar durur.
+// kalıcı öğe (Seat .pk-seat-teas, treat) devralır — süre kısıtı yok, kalkana kadar durur.
 // Koordinatlar bir kez DOM'dan ölçülür ve masa (stage) yüzdesine çevrilir;
 // böylece uçuş sırasında resize olursa yol kabaca korunur, çökme olmaz.
 function TeaFlight({ anim, stageRef }) {
@@ -40,7 +38,7 @@ function TeaFlight({ anim, stageRef }) {
 
   return (
     <img
-      src={teaImg}
+      src={(TREATS[anim.item] || TREATS.tea).img}
       alt=""
       draggable={false}
       className={`pk-tea-travel${coords.self ? ' self' : ''}`}

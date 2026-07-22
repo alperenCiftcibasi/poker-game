@@ -1,12 +1,10 @@
 import React from 'react';
-import teaImg from '../assets/tea.png';
+import { TREATS } from '../treats';
 
-// Koltuktaki ➕ butonundan açılan ısmarlama modalı.
-// Şimdilik tek ürün: çay. Liste genişletilebilir (ITEMS'a ekle).
+// Koltuktaki ➕ butonundan açılan ısmarlama modalı. Ürün listesi src/treats.js'te
+// (sunucudaki TREAT_COSTS ile uyumlu). Alıcının koltuğunda hep SON gönderilen öğe durur.
 // Fiyat her zaman normal çip (🍪): sunucu turnuva masasında bile normal çipten keser.
-const ITEMS = [
-  { key: 'tea', name: 'Çay', cost: 50, img: teaImg }
-];
+const ITEMS = Object.entries(TREATS).map(([key, t]) => ({ key, ...t }));
 
 function TreatModal({ show, target, onClose, onBuy }) {
   if (!show || !target) return null;
@@ -27,7 +25,7 @@ function TreatModal({ show, target, onClose, onBuy }) {
                 <div className="treat-item-name">{item.name}</div>
                 <div className="treat-item-cost">{item.cost} 🍪</div>
               </div>
-              <button className="btn-treat-buy" onClick={() => onBuy(target.id)}>Al</button>
+              <button className="btn-treat-buy" onClick={() => onBuy(target.id, item.key)}>Al</button>
             </div>
           ))}
         </div>

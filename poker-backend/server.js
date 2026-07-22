@@ -77,9 +77,10 @@ app.set('io', io);
 //  iki para biriminin bank+masa invariant'ı çakışmaz.)
 const chipCol = (table) => (table && table.type === 'tournament') ? 'tournamentChips' : 'chips';
 
-// 🍵 Bir çayın normal çip bedeli. Turnuva masasında oturulsa bile çay HER ZAMAN
-// normal çip (User.chips) ile ödenir; turnuva çipine dokunulmaz.
-const TEA_COST = 50;
+// 🍵🥛 Ismarlanabilir öğeler ve normal çip bedelleri (frontend src/treats.js ile uyumlu).
+// Turnuva masasında oturulsa bile bedel HER ZAMAN normal çip (User.chips) ile ödenir;
+// turnuva çipine dokunulmaz.
+const TREAT_COSTS = { tea: 50, ayran: 50 };
 
 // DB invariant'ı: bakiye = kasa + masa. Her persist yolunda bankChips + chips, masanın
 // para birimi sütununa yazılır.
@@ -219,13 +220,15 @@ io.on('connection', (socket) => {
         io.to(`table_${tableId}`).emit('chatMessage', entry);
     });
 
-    // 🍵 ÇAY ISMARLAMA: masada oturan bir oyuncuya (ya da kendine) çay gönder.
-    // Bedel = TEA_COST normal çip, GÖNDERENİN bakiyesinden düşülür.
+    // 🍵 ISMARLAMA: masada oturan bir oyuncuya (ya da kendine) çay/ayran gönder.
+    // Bedel = TREAT_COSTS[item] normal çip, GÖNDERENİN bakiyesinden düşülür.
     // Normal masada oturan gönderen için normal çip CANLI'dır (bankChips + masa yığını) ve DB stale;
     // bu yüzden bedeli önce kasadan (bankChips), gerekirse el oynanmıyorken yığından düşer.
     // İzleyen ya da turnuva masasında oturan gönderen için normal çip DB'de canlıdır → doğrudan DB.
     // Böylece "bakiye = kasa + masa" invariant'ı her yolda korunur.
-    socket.on('sendTea', async ({ tableId, toUserId } = {}) => {
+    socket.on('sendTea', async ({ tableId, toUserId, item = 'tea' } = {}) => {
+        const cost = TREAT_COSTS[item];
+        if (!cost) return; // bilinmeyen öğe
         const table = activeTables.get(tableId);
         if (!table) return;
         // Yalnız bu masayı görüntüleyen kullanıcı buraya çay gönderebilir.
@@ -247,19 +250,19 @@ io.on('connection', (socket) => {
             const idle = ['waiting', 'finished', 'showdown'].includes(seated.gameState);
             const bankHave = me.bankChips || 0;
             // Bedel önce kasadan (bankChips), yetmezse kalanı masa yığınından karşılanır.
-            const fromStack = Math.max(0, TEA_COST - bankHave);
+            const fromStack = Math.max(0, cost - bankHave);
             // El sürerken yığını 0'a indirme: 0-çipli ama hâlâ 'oynuyor' durumu motoru
             // şaşırtabilir. Bu yüzden aktif elde en az 1 çip bırak; masa boşken (idle)
             // tüm parasını çaya yatırabilir (taban 0).
             const stackFloor = idle ? 0 : 1;
-            if (bankHave + me.chips < TEA_COST) {
-                return socket.emit('error', `Çay ısmarlamak için ${TEA_COST} çip gerekiyor; bakiyeniz yetersiz.`);
+            if (bankHave + me.chips < cost) {
+                return socket.emit('error', `Ismarlamak için ${cost} çip gerekiyor; bakiyeniz yetersiz.`);
             }
             if (me.chips - fromStack < stackFloor) {
                 // Kasası boş, tüm parası masada ve el sürüyor → yığını sıfırlamamak için ertele.
-                return socket.emit('error', 'El sürerken çay bedeli masadaki yığını sıfırlar; el bitince tekrar deneyin.');
+                return socket.emit('error', 'El sürerken ısmarlama bedeli masadaki yığını sıfırlar; el bitince tekrar deneyin.');
             }
-            me.bankChips = Math.max(0, bankHave - TEA_COST);
+            me.bankChips = Math.max(0, bankHave - cost);
             me.chips -= fromStack;
             // El sürerken DB persist'i el sonuna bırak (mid-hand pot'u yanlış yazmamak için);
             // masa boştaysa hemen persist et ki hiç el oynanmadan çıkışta çay bedava kalmasın.
@@ -268,22 +271,22 @@ io.on('connection', (socket) => {
         } else {
             // İzleyen ya da turnuva masasında oturan: normal çip DB'de canlıdır.
             const dbUser = await User.findByPk(socket.user.id);
-            if (!dbUser || dbUser.chips < TEA_COST) {
-                return socket.emit('error', `Çay ısmarlamak için ${TEA_COST} çip gerekiyor; bakiyeniz yetersiz.`);
+            if (!dbUser || dbUser.chips < cost) {
+                return socket.emit('error', `Ismarlamak için ${cost} çip gerekiyor; bakiyeniz yetersiz.`);
             }
-            dbUser.chips -= TEA_COST;
+            dbUser.chips -= cost;
             await dbUser.save();
         }
 
         socket.lastTeaAt = now;
-        // Çay koltukta birikir ve oyuncu masadan kalkana kadar durur (süre kısıtı yok);
-        // public state'e girdiği için sonradan gelen izleyici / F5 yapan da görür.
-        target.teas = (target.teas || 0) + 1;
+        // SON ısmarlanan öğe koltukta durur; yenisi eskisini EZER (sayaç yok) ve oyuncu
+        // masadan kalkana kadar kalır. Public state'e girdiği için F5 / sonradan gelen de görür.
+        target.treat = item;
         io.to(`table_${tableId}`).emit('teaReceived', {
-            id: `${now}-${socket.user.id}`,
+            id: `${now}-${socket.user.id}`, item,
             fromId: socket.user.id, fromUsername: socket.user.username,
             toId: target.id, toUsername: target.username,
-            cost: TEA_COST, ts: now
+            cost, ts: now
         });
         broadcastTableUpdate(io, table); // teas sayacını herkese yansıt
     });

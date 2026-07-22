@@ -11,6 +11,7 @@ import AdminPanel from './components/AdminPanel';
 import BuyInModal from './components/BuyInModal';
 import AccountModal from './components/AccountModal';
 import TreatModal from './components/TreatModal';
+import { TREATS } from './treats';
 import Avatar from './components/Avatar';
 import { SERVER_URL } from './config';
 import { playSound, isMuted, toggleMute } from './utils/sounds';
@@ -246,13 +247,13 @@ function App() {
         // Başkasından gelen mesajda hafif bildirim sesi (kendi mesajım sessiz)
         if (msg && msg.userId !== myIdRef.current) playSound('chat');
       });
-      // 🍵 Çay ısmarlama: hedef koltuğa uçan çay animasyonu + log satırı + ses.
+      // 🍵🥛 Ismarlama: hedef koltuğa uçan öğe animasyonu + log satırı + ses.
       // (revealMessages kalıbı: geçici state'e koy, birkaç saniye sonra temizle.)
       newSocket.on('teaReceived', (data) => {
         if (!data || !data.id) return;
         setTeaAnims(prev => [...prev, data]);
         // CSS uçuş 3s ve konduğu yerde opak bekler (solmaz); kaldırınca aynı noktadaki
-        // kalıcı çay (tableState players[].teas → Seat restTeas) kesintisiz devralır.
+        // kalıcı öğe (tableState players[].treat → Seat treat) kesintisiz devralır.
         setTimeout(() => setTeaAnims(prev => prev.filter(t => t.id !== data.id)), 3400);
         const meId = myIdRef.current;
         const fromLabel = data.fromId === meId ? 'Sen' : data.fromUsername;
@@ -261,7 +262,8 @@ function App() {
           : `${data.toUsername}'e`;
         const verb = data.fromId === meId ? 'ısmarladın' : 'ısmarladı';
         const costNote = data.fromId === meId ? ` (−${data.cost} 🍪)` : '';
-        addLog('tea', `🍵 ${fromLabel}, ${toLabel} çay ${verb}${costNote}`);
+        const t = TREATS[data.item] || TREATS.tea;
+        addLog('tea', `${t.emoji} ${fromLabel}, ${toLabel} ${t.name.toLowerCase()} ${verb}${costNote}`);
         playSound('tea');
       });
       // Masa doluyken oturma talebi kuyruğa alındı
@@ -460,10 +462,10 @@ function App() {
     }
   };
 
-  // 🍵 Bir oyuncuya (ya da kendine) çay ısmarla: bedel sunucuda bakiyeden düşülür.
-  const handleSendTea = (toUserId) => {
+  // 🍵🥛 Bir oyuncuya (ya da kendine) öğe ısmarla: bedel sunucuda bakiyeden düşülür.
+  const handleSendTea = (toUserId, item) => {
     if (socket && tableState) {
-      socket.emit('sendTea', { tableId: tableState.id, toUserId });
+      socket.emit('sendTea', { tableId: tableState.id, toUserId, item });
     }
   };
 
@@ -632,7 +634,7 @@ function App() {
         show={!!treatTarget && !!tableState}
         target={treatTarget ? { ...treatTarget, isMe: treatTarget.id === user?.id } : null}
         onClose={() => setTreatTarget(null)}
-        onBuy={(toUserId) => { handleSendTea(toUserId); setTreatTarget(null); }}
+        onBuy={(toUserId, item) => { handleSendTea(toUserId, item); setTreatTarget(null); }}
       />
 
       <Routes>
